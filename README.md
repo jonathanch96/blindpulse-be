@@ -77,4 +77,13 @@ hash-chained immutable ledger.
 
 Planned, in order: market-data ingestion and blinded feeds, the replay session engine and its
 websocket, the order gate and execution simulator, journal and drawings, the mystery reveal, and
-the analytics projectors. `PLAN.md` has the sprint-by-sprint breakdown.
+the analytics projectors.
+
+## Requirements
+
+`docs/requirements/` holds the specification this service is measured against — the approved PRD,
+a register giving every requirement a stable ID traced to its PRD section and owning sprint, and
+one document per sprint with tasks, API contracts, acceptance criteria, tests and risks. Start at
+[`docs/requirements/README.md`](docs/requirements/README.md).
+
+`PLAN.md` is the shorter architectural companion to that folder.

@@ -1,5 +1,11 @@
 bin/
 tmp/
-docs/
 var/
 .env
+
+# Generated swagger output only — docs/requirements/ is tracked. `make swagger` rewrites these
+# three files on every build, so they are noise in a diff, but the requirement set beside them is
+# the reason the folder exists at all.
+docs/docs.go
+docs/swagger.json
+docs/swagger.yaml
