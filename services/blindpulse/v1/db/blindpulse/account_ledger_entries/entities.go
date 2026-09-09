@@ -18,7 +18,7 @@ type LedgerEntry struct {
 	Amount        decimal.Decimal `gorm:"column:amount;type:numeric"`
 	BalanceAfter  decimal.Decimal `gorm:"column:balance_after;type:numeric"`
 	EquityAfter   decimal.Decimal `gorm:"column:equity_after;type:numeric"`
-	Payload       json.RawMessage `gorm:"column:payload;type:jsonb"`
+	Payload       json.RawMessage `gorm:"column:payload;type:json"`
 	PreviousHash  *string         `gorm:"column:previous_hash"`
 	EntryHash     string          `gorm:"column:entry_hash"`
 	RecordedAt    time.Time       `gorm:"column:recorded_at"`

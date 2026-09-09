@@ -1,7 +1,9 @@
 package account
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -304,5 +306,34 @@ func TestOpenRejectsADuplicateNameAndANonPositiveBalance(t *testing.T) {
 	}
 	if !apperror.Is(zero, "VALIDATION_FAILED") {
 		t.Fatalf("zero balance err = %v, want VALIDATION_FAILED", zero)
+	}
+}
+
+// A regression guard for the two ways a persisted ledger silently breaks its own chain: the hash
+// covers the payload bytes and the timestamp, and PostgreSQL will hand both back changed unless
+// the domain writes them at the resolution the database stores.
+func TestLedgerEntriesAreWrittenAtDatabaseResolution(t *testing.T) {
+	t.Parallel()
+	service, _, ledger, _ := newTestService()
+	entity := openTestAccount(t, service, uuid.New())
+
+	entry := ledger.rows[entity.ID][0]
+
+	// PostgreSQL timestamptz keeps microseconds. A nanosecond in the hash is a nanosecond the
+	// database rounds away, and the chain then fails to verify the moment it is read back.
+	if entry.RecordedAt != entry.RecordedAt.Truncate(time.Microsecond) {
+		t.Fatalf("recorded_at carries sub-microsecond precision the database cannot store: %v", entry.RecordedAt)
+	}
+	// The payload is hashed as bytes, so it must be stored in a column that returns those exact
+	// bytes — hence a json column rather than jsonb, which reorders keys and adds whitespace.
+	if !json.Valid(entry.Payload) {
+		t.Fatalf("payload is not valid JSON: %s", entry.Payload)
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, entry.Payload); err != nil {
+		t.Fatalf("json.Compact() error = %v", err)
+	}
+	if !bytes.Equal(compacted.Bytes(), entry.Payload) {
+		t.Fatalf("payload is not in its canonical compact form, so a re-serializing column would change it: %s", entry.Payload)
 	}
 }

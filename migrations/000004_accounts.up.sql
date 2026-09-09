@@ -62,7 +62,11 @@ CREATE TABLE blindpulse.account_ledger_entries (
     amount         NUMERIC(20, 8) NOT NULL,
     balance_after  NUMERIC(20, 8) NOT NULL,
     equity_after   NUMERIC(20, 8) NOT NULL,
-    payload        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- json, not jsonb, and deliberately so: jsonb re-serializes on write (it reorders keys and
+    -- normalizes whitespace), which would change the very bytes the entry_hash covers and break
+    -- every chain on read-back. Ledger payloads are read wholesale as an audit record, never
+    -- queried by key, so the indexing jsonb would buy is worth nothing here.
+    payload        JSON NOT NULL DEFAULT '{}'::json,
     previous_hash  TEXT,
     entry_hash     TEXT NOT NULL,
     recorded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),

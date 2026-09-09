@@ -282,7 +282,10 @@ func (s *service) appendLedger(ctx context.Context, accountID uuid.UUID, kind do
 		ID: uuid.New(), AccountID: accountID, Sequence: sequence, Kind: kind,
 		ReferenceType: referenceType, ReferenceID: referenceID,
 		Amount: amount, BalanceAfter: balanceAfter, EquityAfter: equityAfter,
-		Payload: encoded, PreviousHash: previousHash, RecordedAt: s.deps.Clock(),
+		Payload: encoded, PreviousHash: previousHash,
+		// Truncated to the resolution PostgreSQL actually stores. A nanosecond in the hash is a
+		// nanosecond the database rounds away, and the chain then fails to verify on read-back.
+		RecordedAt: s.deps.Clock().Truncate(time.Microsecond),
 	}
 	entry.EntryHash = hashEntry(*entry, previousHash)
 	if err := s.deps.Ledger.Append(ctx, entry); err != nil {
