@@ -1,0 +1,97 @@
+x-backend-environment: &backend-environment
+  APP_ENV: ${APP_ENV:-production}
+  APP_PORT: 8080
+  DB_HOST: ${DB_HOST:-postgres-db}
+  DB_PORT: ${DB_PORT:-5432}
+  DB_USER: ${DB_USER:-blindpulse}
+  DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in blindpulse-be/.env}
+  DB_NAME: ${DB_NAME:-blindpulse}
+  DB_SCHEMA: ${DB_SCHEMA:-blindpulse}
+  DB_SSLMODE: ${DB_SSLMODE:-disable}
+  DB_AUTO_MIGRATE: "false"
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in blindpulse-be/.env}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in blindpulse-be/.env}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://blindpulse.jonathanchang.my.id}
+  STORAGE_LOCAL_ROOT: /data/journal
+  STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL:-http://localhost:8080/api/v1/journal-media}
+  # Redis and Kafka already run on the shared network; the service joins them by alias.
+  REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  REDIS_NAMESPACE: ${REDIS_NAMESPACE:-blindpulse}
+  KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+  KAFKA_TOPIC_PREFIX: ${KAFKA_TOPIC_PREFIX:-blindpulse}
+  KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-blindpulse-projectors}
+
+services:
+  migrate:
+    image: ${BACKEND_IMAGE:-blindpulse-backend:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    entrypoint: ["/blindpulse-migrate"]
+    environment: *backend-environment
+    networks:
+      - shared_network
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  backend:
+    image: ${BACKEND_IMAGE:-blindpulse-backend:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - journal-data:/data/journal
+    networks:
+      shared_network:
+        aliases:
+          - blindpulse-backend
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # The relay and projectors run apart from the API so a broker stall can never add latency to a
+  # replay tick, and so this half can be scaled on outbox depth rather than request rate.
+  worker:
+    image: ${BACKEND_IMAGE:-blindpulse-backend:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    entrypoint: ["/blindpulse-worker"]
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - shared_network
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  shared_network:
+    external: true
+    name: shared_network
+
+volumes:
+  journal-data:

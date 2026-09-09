@@ -1,0 +1,10 @@
+.git
+.env
+.air*.toml
+bin
+tmp
+var
+*.log
+Dockerfile*
+docker-compose*.yml
+docker-compose*.yaml

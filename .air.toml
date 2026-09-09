@@ -1,0 +1,8 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/main ./adapters/rest"
+bin = "tmp/main"
+include_ext = ["go", "sql"]
+exclude_dir = ["tmp", "docs"]

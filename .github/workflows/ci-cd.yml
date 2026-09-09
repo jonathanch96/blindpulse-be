@@ -1,0 +1,125 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+env:
+  GO_VERSION: "1.26.5"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Generate swagger docs
+        run: make swagger
+
+      - name: Arch lint
+        run: go run ./tools/archlint
+
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Test
+        run: make test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build
+        run: make build
+
+  migrate:
+    name: Migrate check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: blindpulse
+          POSTGRES_PASSWORD: blindpulse
+          POSTGRES_DB: blindpulse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run migrations against a clean database
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: blindpulse
+          DB_PASSWORD: blindpulse
+          DB_NAME: blindpulse
+          DB_SSLMODE: disable
+        run: make migrate-up
+
+  deploy:
+    name: SSH Deploy (production)
+    needs: [lint, test, build, migrate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Deploy to server
+        run: |
+          ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_IP }} bash << 'EOF'
+            set -e
+            cd ${{ secrets.APP_PATH }}
+
+            git stash -u || true
+            git checkout main
+            git pull origin main
+            git stash drop 2>/dev/null || true
+
+            docker compose -f docker-compose.prod.yml -p ${{ secrets.APP_CONTAINER_NAME }} build
+            docker compose -f docker-compose.prod.yml -p ${{ secrets.APP_CONTAINER_NAME }} up -d --remove-orphans
+            docker image prune -f
+          EOF

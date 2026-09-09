@@ -1,0 +1,107 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: blindpulse
+      POSTGRES_PASSWORD: blindpulse
+      POSTGRES_DB: blindpulse
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blindpulse -d blindpulse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - blindpulse-postgres:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Redis carries the replay hot path: session cursor state, bar-window caches, order idempotency
+  # keys, rate limiting, and the cross-instance pub/sub that fans replay frames to websockets.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - blindpulse-redis:/data
+
+  # Redpanda speaks the Kafka protocol, so local development matches the server's broker without
+  # running a JVM and a ZooKeeper/KRaft pair on a laptop.
+  redpanda:
+    image: redpandadata/redpanda:v24.3.18
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+    ports:
+      - "${KAFKA_HOST_PORT:-9092}:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: cosmtrek/air:latest
+    working_dir: /app
+    command: ["-c", ".air.toml"]
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: redpanda:29092
+    volumes:
+      - .:/app
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # The relay is a separate process in production too, so running it that way locally keeps the
+  # "no handler publishes directly" rule honest.
+  worker:
+    image: cosmtrek/air:latest
+    working_dir: /app
+    command: ["-c", ".air.worker.toml"]
+    profiles: ["events"]
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: redpanda:29092
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+volumes:
+  blindpulse-postgres:
+  blindpulse-redis:
