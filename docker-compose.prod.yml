@@ -79,6 +79,10 @@ services:
       dockerfile: Dockerfile.prod
     entrypoint: ["/blindpulse-worker"]
     environment: *backend-environment
+    # The image's HEALTHCHECK probes the API's /readyz; the worker serves no HTTP, so it would
+    # always report unhealthy.
+    healthcheck:
+      disable: true
     depends_on:
       migrate:
         condition: service_completed_successfully
