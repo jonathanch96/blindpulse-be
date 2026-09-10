@@ -185,8 +185,8 @@ the browser enforces is a rule a `curl` command ignores.
 | Sprint | Theme | Requirements | Status |
 |---|---|---|---|
 | 00 | Foundation and infrastructure | NFR-06, NFR-08 | DONE |
-| 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE |
-| 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | PLANNED |
+| 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE except the account settings screen (FR-AUTH-04) |
+| 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | DONE — the 1,200-cycle archive (FR-FEED-02) is data loading, not code |
 | 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01..04 | IN PROGRESS — 03A/03B/03C/03D done, 03E/03F planned |
 | 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09 | PLANNED |
 | 05 | Journal, drawings and the mystery reveal | FR-JOURNAL-01..06, FR-REVEAL-01..03, FR-TA-11, FR-UI-04/10, BR-08 | PLANNED |
