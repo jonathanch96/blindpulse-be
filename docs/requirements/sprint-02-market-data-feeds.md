@@ -36,10 +36,19 @@ has the hindsight the whole product exists to remove.
   `FEED_WINDOW_TOO_SHORT`.
 - **Alias**: `Asset #NNN` from a counter, never derived from the symbol — a hash of the ticker is
   reversible by anyone with a list of tickers.
-- **Price normalization**: `displayed = (real + price_offset) × price_scale`, with the scale drawn
-  so the resulting price magnitude does not itself identify the asset class (EUR/USD at 1.08 and
-  BTC at 60,000 must not be separable by magnitude alone). Ratios and therefore all technical
-  structure are preserved exactly.
+- **Price normalization**: an affine map, `displayed = (real + price_offset) × price_scale`, with
+  the scale drawn so the resulting magnitude does not itself identify the asset class (EUR/USD at
+  1.08 and BTC at 60,000 must not be separable by magnitude alone).
+
+  What an affine map preserves *exactly*, because every one of these is linear in price:
+  fibonacci levels, trendlines, support/resistance geometry, EMAs, RSI (it reads differences), and
+  risk-to-reward (a ratio of price distances, so the offset cancels and the scale divides out).
+
+  What it deliberately does **not** preserve: percentage returns. That is the point — an identical
+  percentage-return series is a fingerprint that can be matched against a database of real assets,
+  so preserving it would leave the feed identifiable by anyone willing to run the comparison. The
+  cost is that `LOG` scale mode is meaningful only within the normalized series, which is the only
+  series the client ever sees.
 - **Volume normalization**: rebased to a relative index for the same reason.
 - **Date masking**: the API emits `bar_index` and relative offsets only. No absolute timestamp
   appears in any pre-reveal payload — not in a field, not in an id, not in an ETag.
@@ -93,7 +102,7 @@ Additions this sprint:
 | 02-AC-1 | A CSV of 1m bars | Loaded twice | Row count is identical; no duplicates |
 | 02-AC-2 | A bar with `high < low` | Loaded | Row is rejected and named in the error, load continues |
 | 02-AC-3 | A published feed | `GET /feeds/{id}` | No response field contains the symbol, an absolute date, or the instrument id — asserted over the serialized JSON, not the struct |
-| 02-AC-4 | A normalized series | Compared to the real series | Every bar-to-bar ratio matches to 10 decimal places |
+| 02-AC-4 | A normalized series | Fib levels and R:R computed on it | Identical to the same computation on real prices, mapped through the transform (affine invariance) |
 | 02-AC-5 | Two feeds from different asset classes | Compared | Price magnitudes overlap; class is not inferable from magnitude |
 | 02-AC-6 | A window shorter than the minimum | Feed build | `FEED_WINDOW_TOO_SHORT`, no row written |
 | 02-AC-7 | A user who has traded feed A | `POST /feeds/random` ×20 | Feed A is never returned |
@@ -104,7 +113,9 @@ Additions this sprint:
 - **Integration:** loader idempotency and validation against a real database.
 - **Contract:** a leak test per endpoint that serializes the response and greps for every symbol in
   the instruments table and for any ISO-8601 date. This is the NFR-05 guard and it runs in CI.
-- **Property:** for random windows, normalized-then-denormalized prices round-trip within tolerance.
+- **Property:** for random windows, normalized-then-denormalized prices round-trip within tolerance,
+  and percentage returns of the normalized series differ from the real ones — asserting the
+  fingerprint is actually broken, not merely assumed to be.
 
 ## Definition of done
 All criteria met, leak test in CI, at least 200 feeds built across four asset classes, and the

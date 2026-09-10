@@ -14,14 +14,19 @@ import (
 	"github.com/jblabs/blindpulse-be/pkg/response"
 	accountcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/account"
 	authcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/auth"
+	feedcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/feed"
 	usercontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/user"
 	appdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db"
 	ledgerdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/account_ledger_entries"
 	accountsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/accounts"
+	feedsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/blinded_feeds"
+	instrumentsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/instruments"
+	barsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/market_bars"
 	outboxdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/outbox_events"
 	refreshtokens "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/refresh_tokens"
 	users "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/users"
 	accountdomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/account"
+	feeddomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/feed"
 	userdomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/user"
 	"gorm.io/gorm"
 )
@@ -37,6 +42,7 @@ type Service struct {
 	auth     authcontroller.Controller
 	users    usercontroller.Controller
 	accounts accountcontroller.Controller
+	feeds    feedcontroller.Controller
 	issuer   *appjwt.Issuer
 }
 
@@ -63,10 +69,17 @@ func NewService(deps Dependencies) *Service {
 		// environment-prefixed one, so a domain package never encodes deployment layout.
 		Topic: deps.Cfg.Kafka.Topic,
 	})
+	instrumentRepo := instrumentsdb.New(deps.DB)
+	feedService := feeddomain.NewService(feeddomain.Dependencies{
+		Repo:        feedsdb.New(deps.DB),
+		Bars:        barsdb.New(deps.DB),
+		Instruments: instrumentRepo,
+	})
 	return &Service{
 		auth:     authcontroller.NewController(userService),
 		users:    usercontroller.NewController(userService),
 		accounts: accountcontroller.NewController(accountService),
+		feeds:    feedcontroller.NewController(feedService, instrumentRepo),
 		issuer:   issuer,
 	}
 }
@@ -78,6 +91,7 @@ func (s *Service) RegisterRoutes(group *gin.RouterGroup) {
 	protected.Use(middleware.Authenticate(s.issuer))
 	s.users.RegisterRoutes(protected)
 	s.accounts.RegisterRoutes(protected)
+	s.feeds.RegisterRoutes(protected)
 }
 
 // googleVerifierAdapter adapts pkg/oauth/google's Verifier (which returns its own Claims type) to
