@@ -18,8 +18,8 @@ import (
 	sessionresponse "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/response/session"
 )
 
-func NewController(sessions sessiondomain.Service, feeds feeddomain.Service) Controller {
-	return &controller{sessions: sessions, feeds: feeds}
+func NewController(sessions sessiondomain.Service, feeds feeddomain.Service, allowedOrigins []string) Controller {
+	return &controller{sessions: sessions, feeds: feeds, origins: originPatterns(allowedOrigins)}
 }
 
 func (c *controller) RegisterRoutes(group *gin.RouterGroup) {
@@ -34,6 +34,7 @@ func (c *controller) RegisterRoutes(group *gin.RouterGroup) {
 	group.POST("/sessions/:id/pause", c.pause)
 	group.POST("/sessions/:id/resume", c.resume)
 	group.POST("/sessions/:id/close", c.close)
+	group.POST("/sessions/:id/stream-ticket", c.streamTicket)
 }
 
 func actor(ctx *gin.Context) identity.Identity {

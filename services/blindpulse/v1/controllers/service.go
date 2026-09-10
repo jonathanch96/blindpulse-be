@@ -3,6 +3,9 @@ package controllers
 import (
 	"context"
 	"log/slog"
+	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jblabs/blindpulse-be/adapters/rest/config"
@@ -80,6 +83,19 @@ func NewService(deps Dependencies) *Service {
 		Bars:        barsdb.New(deps.DB),
 		Instruments: instrumentRepo,
 	})
+	// Streaming adapters. With Redis configured, frames cross replicas over pub/sub and one
+	// replica holds the driver lease; without it, both degrade to in-process equivalents that are
+	// correct for a single instance. The domain does not know which it got.
+	var (
+		frameBus    sessiondomain.FrameBus    = sessionsdb.NewMemoryFrameBus()
+		driverLease sessiondomain.DriverLease = sessionsdb.NewMemoryDriverLease()
+		ticketStore sessiondomain.TicketStore = sessionsdb.NewMemoryTicketStore()
+	)
+	if deps.Cache.Enabled() {
+		frameBus = sessionsdb.NewRedisFrameBus(deps.Cache)
+		driverLease = sessionsdb.NewRedisDriverLease(deps.Cache)
+		ticketStore = sessionsdb.NewRedisTicketStore(deps.Cache)
+	}
 	sessionService := sessiondomain.NewService(sessiondomain.Dependencies{
 		Repo:  sessionsdb.New(deps.DB),
 		State: sessionsdb.NewRedisStateStore(deps.Cache, deps.Cfg.Redis.SessionTTL),
@@ -92,13 +108,21 @@ func NewService(deps Dependencies) *Service {
 		MinSpeed:          decimal.NewFromFloat(deps.Cfg.Replay.MinSpeed),
 		MaxSpeed:          decimal.NewFromFloat(deps.Cfg.Replay.MaxSpeed),
 		MaxBarsPerRequest: deps.Cfg.Replay.BarWindowSize,
+		Bus:               frameBus,
+		Lease:             driverLease,
+		Ticket:            ticketStore,
+		BaseTick:          deps.Cfg.Replay.StreamTickInterval,
+		TicketTTL:         deps.Cfg.Replay.StreamTicketTTL,
+		// The lease holder has to be unique per process, and stable for its life: a holder that
+		// changed would make every renewal look like a different replica taking the lease.
+		Holder: instanceID(),
 	})
 	return &Service{
 		auth:     authcontroller.NewController(userService),
 		users:    usercontroller.NewController(userService),
 		accounts: accountcontroller.NewController(accountService),
 		feeds:    feedcontroller.NewController(feedService, instrumentRepo),
-		sessions: sessioncontroller.NewController(sessionService, feedService),
+		sessions: sessioncontroller.NewController(sessionService, feedService, deps.Cfg.CORS.AllowedOrigins),
 		issuer:   issuer,
 	}
 }
@@ -112,7 +136,14 @@ func (s *Service) RegisterRoutes(group *gin.RouterGroup) {
 	s.accounts.RegisterRoutes(protected)
 	s.feeds.RegisterRoutes(protected)
 	s.sessions.RegisterRoutes(protected)
+	// Outside the bearer middleware on purpose: the socket authenticates with a single-use ticket
+	// minted by an authenticated caller, because a browser cannot set headers on a WS handshake.
+	s.sessions.RegisterStreamRoutes(group)
 }
+
+// instanceID names this process for the driver lease. A hostname would collide across pods that
+// restart into the same name, so it is drawn fresh per process.
+var instanceID = sync.OnceValue(uuid.NewString)
 
 // googleVerifierAdapter adapts pkg/oauth/google's Verifier (which returns its own Claims type) to
 // the domain/user package's GoogleVerifier interface, so the domain layer doesn't need to import

@@ -92,6 +92,8 @@ type feedReaderStub struct {
 	served          [][2]int
 	viewedTimeframe market.Timeframe
 	viewedUpto      int
+	// viewBars overrides the rolled-up series, so a test can pin what the tail bar looks like.
+	viewBars func(market.Timeframe, int) []domainfeed.Bar
 }
 
 func (f *feedReaderStub) Get(_ context.Context, _ uuid.UUID) (*domainfeed.Feed, error) {
@@ -102,6 +104,9 @@ func (f *feedReaderStub) Get(_ context.Context, _ uuid.UUID) (*domainfeed.Feed, 
 func (f *feedReaderStub) ViewBars(_ context.Context, _ uuid.UUID, timeframe market.Timeframe, upto int) ([]domainfeed.Bar, error) {
 	f.viewedTimeframe = timeframe
 	f.viewedUpto = upto
+	if f.viewBars != nil {
+		return f.viewBars(timeframe, upto), nil
+	}
 	return []domainfeed.Bar{{Index: 0, Close: decimal.NewFromInt(100)}}, nil
 }
 

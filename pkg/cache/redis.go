@@ -126,6 +126,64 @@ func (c *Client) Reserve(ctx context.Context, key string, ttl time.Duration) (bo
 	return won, nil
 }
 
+// Take reads a key and deletes it in the same round trip, reporting ErrMiss if it was not there.
+// It is what makes a single-use token single-use: two concurrent redemptions of the same token
+// cannot both succeed, which a read-then-delete pair could not promise.
+func (c *Client) Take(ctx context.Context, key string, target any) error {
+	if !c.Enabled() {
+		return ErrMiss
+	}
+	raw, err := c.rdb.GetDel(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return ErrMiss
+	}
+	if err != nil {
+		return fmt.Errorf("cache take %s: %w", key, err)
+	}
+	return json.Unmarshal(raw, target)
+}
+
+// holdScript takes or renews a lease. Renewal has to be conditional on still being the holder:
+// an unconditional SET would let a replica that lost its lease during a pause quietly take it
+// back while another replica is already driving the session.
+var holdScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] or redis.call("EXISTS", KEYS[1]) == 0 then
+  redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2])
+  return 1
+end
+return 0
+`)
+
+// releaseScript deletes the lease only if we still hold it, so a slow release cannot stomp the
+// lease its successor has already taken.
+var releaseScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("DEL", KEYS[1])
+end
+return 0
+`)
+
+// Hold takes or renews a named lease and reports whether this holder owns it. With Redis
+// disabled it always succeeds: a single instance is trivially the only candidate.
+func (c *Client) Hold(ctx context.Context, key, holder string, ttl time.Duration) (bool, error) {
+	if !c.Enabled() {
+		return true, nil
+	}
+	result, err := holdScript.Run(ctx, c.rdb, []string{key}, holder, ttl.Milliseconds()).Int()
+	if err != nil {
+		return false, fmt.Errorf("cache hold %s: %w", key, err)
+	}
+	return result == 1, nil
+}
+
+// ReleaseHold gives a lease up early, so a successor does not have to wait out the TTL.
+func (c *Client) ReleaseHold(ctx context.Context, key, holder string) error {
+	if !c.Enabled() {
+		return nil
+	}
+	return releaseScript.Run(ctx, c.rdb, []string{key}, holder).Err()
+}
+
 // Incr counts an event inside a fixed window and returns the running total plus the time left in
 // the window. It is the primitive behind the distributed rate limiter.
 func (c *Client) Incr(ctx context.Context, key string, window time.Duration) (int64, time.Duration, error) {
@@ -158,11 +216,38 @@ func (c *Client) Publish(ctx context.Context, channel string, payload any) error
 	return c.rdb.Publish(ctx, channel, raw).Err()
 }
 
-// Subscribe returns the raw pub/sub handle. The caller owns closing it; the replay streamer
-// closes it when the last websocket for a session goes away.
-func (c *Client) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
+// Subscribe returns a channel of raw payloads and a function that closes the subscription. The
+// go-redis handle stays inside this package: callers get a plain string channel, so the pub/sub
+// library is not something the rest of the codebase has to know about or mock.
+//
+// The returned channel is closed when the subscription is closed or ctx is cancelled. With Redis
+// disabled it is nil, which selects forever — a caller with a local fallback should check
+// Enabled() first rather than subscribing and waiting for nothing.
+func (c *Client) Subscribe(ctx context.Context, channel string) (<-chan string, func()) {
 	if !c.Enabled() {
-		return nil
+		return nil, func() {}
 	}
-	return c.rdb.Subscribe(ctx, channels...)
+	pubsub := c.rdb.Subscribe(ctx, channel)
+	out := make(chan string, 64)
+	go func() {
+		defer close(out)
+		defer func() { _ = pubsub.Close() }()
+		incoming := pubsub.Channel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case message, ok := <-incoming:
+				if !ok {
+					return
+				}
+				select {
+				case out <- message.Payload:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return out, func() { _ = pubsub.Close() }
 }

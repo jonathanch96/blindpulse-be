@@ -48,6 +48,11 @@ var catalog = map[string]definition{
 	"DRAWING_NOT_FOUND":    {http.StatusNotFound, "Chart drawing not found"},
 	"BARS_EXHAUSTED":       {http.StatusNotFound, "The feed has no further bars in this window"},
 
+	// Streaming. A ticket is worth one connection to one session for a few seconds; a second
+	// redemption of the same token is refused, so a ticket that leaks into a log is already spent.
+	"STREAM_TICKET_INVALID": {http.StatusUnauthorized, "The stream ticket is expired, already used, or not yours"},
+	"STREAMING_UNAVAILABLE": {http.StatusServiceUnavailable, "Live replay streaming is not enabled on this instance"},
+
 	// Conflict
 	"EMAIL_ALREADY_REGISTERED": {http.StatusConflict, "Email is already registered"},
 	"ACCOUNT_NAME_TAKEN":       {http.StatusConflict, "An account with this name already exists"},

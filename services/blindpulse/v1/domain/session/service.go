@@ -125,11 +125,19 @@ func (s *service) Step(ctx context.Context, userID, sessionID uuid.UUID, count i
 	if target > feed.TotalBars-1 {
 		return nil, apperror.New("BARS_EXHAUSTED")
 	}
+	released := target > entity.RevealedIndex
 	entity.CursorIndex = target
-	if target > entity.RevealedIndex {
+	if released {
 		entity.RevealedIndex = target
 	}
-	return s.persistCursor(ctx, entity)
+	// Only an advance past the edge carries a bar. A rewind moves where the trader is looking and
+	// releases nothing, so it travels as a state frame — sending a bar there would be the frame
+	// stream quietly re-revealing something.
+	kind := domainsession.FrameState
+	if released {
+		kind = domainsession.FrameBar
+	}
+	return s.persistCursor(ctx, entity, kind)
 }
 
 // Seek jumps the view to a bar the session has already released. Seeking forward is refused, not
@@ -145,7 +153,7 @@ func (s *service) Seek(ctx context.Context, userID, sessionID uuid.UUID, index i
 			"bar %d has not been released; the session has revealed up to %d", index, entity.RevealedIndex)
 	}
 	entity.CursorIndex = index
-	return s.persistCursor(ctx, entity)
+	return s.persistCursor(ctx, entity, domainsession.FrameState)
 }
 
 func (s *service) SetSpeed(ctx context.Context, userID, sessionID uuid.UUID, raw string) (*domainsession.Session, error) {
@@ -159,7 +167,7 @@ func (s *service) SetSpeed(ctx context.Context, userID, sessionID uuid.UUID, raw
 			"speed must be between %s and %s", s.deps.MinSpeed, s.deps.MaxSpeed)
 	}
 	entity.Speed = speed
-	return s.persistCursor(ctx, entity)
+	return s.persistCursor(ctx, entity, domainsession.FrameState)
 }
 
 func (s *service) Pause(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Session, error) {
@@ -185,6 +193,10 @@ func (s *service) Close(ctx context.Context, userID, sessionID uuid.UUID) (*doma
 		return nil, err
 	}
 	_ = s.deps.State.Clear(ctx, entity.ID)
+	// Published before the outbox write: a socket watching a session that just closed should be
+	// told so even if the event write then fails, because the alternative is a terminal that sits
+	// there waiting for bars that will never come.
+	s.publish(ctx, entity, domainsession.FrameState)
 	if err := s.emit(ctx, entity.ID, event.TypeSessionClosed, event.TopicSessions, map[string]any{
 		"session_id": entity.ID, "user_id": userID, "account_id": entity.AccountID,
 		"cursor_index": entity.CursorIndex, "revealed_index": entity.RevealedIndex, "closed_at": now,
@@ -237,12 +249,13 @@ func (s *service) transition(ctx context.Context, userID, sessionID uuid.UUID, s
 	entity.Version++
 	entity.UpdatedAt = s.deps.Clock()
 	_ = s.deps.State.Save(ctx, entity.Snapshot())
+	s.publish(ctx, entity, domainsession.FrameState)
 	return entity, nil
 }
 
 // persistCursor writes the move. Redis always gets it; PostgreSQL gets it on a checkpoint boundary
 // or a status-bearing change, which bounds what a cache flush can cost to CheckpointEvery bars.
-func (s *service) persistCursor(ctx context.Context, entity *domainsession.Session) (*domainsession.Session, error) {
+func (s *service) persistCursor(ctx context.Context, entity *domainsession.Session, kind domainsession.FrameKind) (*domainsession.Session, error) {
 	now := s.deps.Clock()
 	entity.LastActiveAt = now
 	entity.UpdatedAt = now
@@ -256,6 +269,10 @@ func (s *service) persistCursor(ctx context.Context, entity *domainsession.Sessi
 		return nil, err
 	}
 	_ = s.deps.State.Save(ctx, entity.Snapshot())
+	// Every cursor move fans out, whichever path produced it: the playback clock and a trader
+	// pressing the step key publish the same frame, so a second screen watching the same session
+	// cannot drift from the one being driven.
+	s.publish(ctx, entity, kind)
 	return entity, nil
 }
 
@@ -334,7 +351,10 @@ func (s *service) SetTimeframe(ctx context.Context, userID, sessionID uuid.UUID,
 			"this feed's finest available timeframe is %s", feed.BaseTimeframe)
 	}
 	entity.Timeframe = timeframe
-	return s.persistCursor(ctx, entity)
+	// A timeframe change re-renders the whole series, so the frame carries the new tail bar: the
+	// client that asked for it already refetches, but a second screen on the same session needs
+	// to be told the lens moved.
+	return s.persistCursor(ctx, entity, domainsession.FrameBar)
 }
 
 // ViewBars renders the session at a timeframe, as of the revealed edge. The edge — not the view
@@ -345,6 +365,12 @@ func (s *service) ViewBars(ctx context.Context, userID, sessionID uuid.UUID, tim
 	if err != nil {
 		return nil, err
 	}
+	return s.viewBars(ctx, entity, timeframe)
+}
+
+// viewBars is ViewBars once the session is already loaded — the streaming path builds a frame from
+// an entity it has in hand and must not re-read the session for every bar it releases.
+func (s *service) viewBars(ctx context.Context, entity *domainsession.Session, timeframe market.Timeframe) ([]domainfeed.Bar, error) {
 	if timeframe == "" {
 		timeframe = entity.Timeframe
 	}

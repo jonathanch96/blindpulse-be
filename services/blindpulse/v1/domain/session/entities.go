@@ -1,6 +1,8 @@
 package session
 
 import (
+	"context"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,9 +32,37 @@ type Dependencies struct {
 	MaxSpeed          decimal.Decimal
 	CheckpointEvery   int
 	MaxBarsPerRequest int
+
+	// Streaming. All three are optional: with none of them wired the session still steps over
+	// HTTP, it just does not stream. Bus and Lease have in-process implementations for a
+	// single-instance deployment, so "no Redis" degrades rather than fails.
+	Bus    FrameBus
+	Lease  DriverLease
+	Ticket TicketStore
+	// BaseTick is how long one bar takes at 1x. Playback speed divides it, so 10x is ten bars in
+	// the same wall-clock second. This is replay time, not market time: a 15m feed at 1x would
+	// otherwise take a working week to walk.
+	BaseTick  time.Duration
+	TicketTTL time.Duration
+	// Holder identifies this replica when it takes a driver lease.
+	Holder string
 }
 
-type service struct{ deps Dependencies }
+type service struct {
+	deps Dependencies
+	// drivers tracks the sessions this replica is currently driving, so a second subscriber joins
+	// the running clock instead of starting a second one.
+	driversMu sync.Mutex
+	drivers   map[uuid.UUID]*driver
+}
+
+// driver is one session's playback clock on this replica, and the count of sockets keeping it
+// alive. The last socket to leave stops the clock — a session nobody is watching should not be
+// burning through its feed.
+type driver struct {
+	cancel context.CancelFunc
+	refs   int
+}
 
 type StartInput struct {
 	AccountID uuid.UUID

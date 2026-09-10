@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	domainfeed "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/feed"
@@ -33,6 +34,17 @@ type Service interface {
 	// ViewBars returns the session rolled up to a timeframe, as of the revealed edge. Pass an
 	// empty timeframe to use the session's current one.
 	ViewBars(ctx context.Context, userID, sessionID uuid.UUID, timeframe market.Timeframe) ([]domainfeed.Bar, error)
+
+	// IssueStreamTicket trades an authenticated caller's bearer for a single-use websocket ticket.
+	IssueStreamTicket(ctx context.Context, userID, sessionID uuid.UUID) (string, time.Duration, error)
+	// RedeemStreamTicket consumes a ticket and returns who it belongs to. The websocket handler
+	// gets its identity from here and from nowhere else.
+	RedeemStreamTicket(ctx context.Context, token string) (*StreamTicket, error)
+	// Stream subscribes to a session's frames and makes sure some replica is driving its clock.
+	// The returned cancel releases the subscription; the driver stops once the last one goes.
+	Stream(ctx context.Context, userID, sessionID uuid.UUID) (<-chan domainsession.Frame, func(), error)
+	// Snapshot builds the sync frame: where the server says this session is, right now.
+	Snapshot(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Frame, error)
 }
 
 type Repository interface {
@@ -68,4 +80,42 @@ type AccountReader interface {
 
 type OutboxRepository interface {
 	Create(ctx context.Context, event *EventRecord) error
+}
+
+// FrameBus fans replay frames out across API replicas.
+//
+// One replica advances a session's cursor; every replica holding a websocket for that session
+// receives the frames. Without this, a reconnect that lands on a different instance — which is
+// the normal case behind a load balancer — would go silent.
+type FrameBus interface {
+	Publish(ctx context.Context, frame domainsession.Frame) error
+	// Subscribe returns a channel of frames and a cancel function. The channel is closed when the
+	// subscription ends. Implementations must never block the publisher on a slow subscriber.
+	Subscribe(ctx context.Context, sessionID uuid.UUID) (<-chan domainsession.Frame, func(), error)
+}
+
+// DriverLease elects exactly one replica to advance a given session's cursor.
+//
+// Two replicas driving the same session would double-step it, which is not a rendering glitch but
+// a correctness failure: bars would be released that the trader never saw. The lease is short and
+// renewed, so a replica that dies hands the session over within one TTL instead of stalling it.
+type DriverLease interface {
+	// Acquire reports whether this replica may drive the session. Renewing is Acquire again by
+	// the same holder.
+	Acquire(ctx context.Context, sessionID uuid.UUID, holder string, ttl time.Duration) (bool, error)
+	Release(ctx context.Context, sessionID uuid.UUID, holder string) error
+}
+
+// StreamTicket aliases the entity so the domain names it without a second definition. It is what
+// a browser presents to open a websocket: a browser cannot set an Authorization header on a
+// WebSocket handshake, and putting the access token in the query string would write it into every
+// proxy log between here and the client. So the authenticated HTTP caller trades its bearer for a
+// single-use ticket worth one connection to one session for a few seconds.
+type StreamTicket = domainsession.StreamTicket
+
+type TicketStore interface {
+	Issue(ctx context.Context, ticket StreamTicket, ttl time.Duration) (string, error)
+	// Redeem consumes the token. A second redemption of the same token must fail, or a leaked
+	// ticket is a reusable credential.
+	Redeem(ctx context.Context, token string) (*StreamTicket, error)
 }

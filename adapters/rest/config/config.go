@@ -108,13 +108,19 @@ type KafkaConfig struct {
 // MaxOpenPositions/MinRiskReward/MaxDailyDrawdown are the server-side mirrors of the risk gates
 // the terminal enforces in the UI - the client's copy is a convenience, this one is authoritative.
 type ReplayConfig struct {
-	MaxSpeed           float64       `envconfig:"REPLAY_MAX_SPEED" default:"10"`
-	MinSpeed           float64       `envconfig:"REPLAY_MIN_SPEED" default:"0.5"`
-	MaxOpenPositions   int           `envconfig:"REPLAY_MAX_OPEN_POSITIONS" default:"10"`
-	MinRiskReward      float64       `envconfig:"REPLAY_MIN_RISK_REWARD" default:"2"`
-	MaxDailyDrawdown   float64       `envconfig:"REPLAY_MAX_DAILY_DRAWDOWN_PCT" default:"5"`
-	BarWindowSize      int           `envconfig:"REPLAY_BAR_WINDOW_SIZE" default:"1500"`
+	MaxSpeed         float64 `envconfig:"REPLAY_MAX_SPEED" default:"10"`
+	MinSpeed         float64 `envconfig:"REPLAY_MIN_SPEED" default:"0.5"`
+	MaxOpenPositions int     `envconfig:"REPLAY_MAX_OPEN_POSITIONS" default:"10"`
+	MinRiskReward    float64 `envconfig:"REPLAY_MIN_RISK_REWARD" default:"2"`
+	MaxDailyDrawdown float64 `envconfig:"REPLAY_MAX_DAILY_DRAWDOWN_PCT" default:"5"`
+	BarWindowSize    int     `envconfig:"REPLAY_BAR_WINDOW_SIZE" default:"1500"`
+	// StreamTickInterval is how long one bar takes at 1x. This is replay time, not market time:
+	// a 15m feed walked at market pace would take a working week, so 1x means one bar per tick
+	// and speed divides it.
 	StreamTickInterval time.Duration `envconfig:"REPLAY_STREAM_TICK_INTERVAL" default:"250ms"`
+	// StreamTicketTTL bounds how long a websocket ticket is worth anything. Long enough for the
+	// browser to make one connection, short enough that a ticket in a log is already dead.
+	StreamTicketTTL    time.Duration `envconfig:"REPLAY_STREAM_TICKET_TTL" default:"30s"`
 	SessionIdleTimeout time.Duration `envconfig:"REPLAY_SESSION_IDLE_TIMEOUT" default:"30m"`
 }
 

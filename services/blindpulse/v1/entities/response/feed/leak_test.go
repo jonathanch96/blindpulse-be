@@ -57,7 +57,10 @@ var forbidden = []string{
 	"price_scale", "price_offset", "0.4137", "3.72",
 }
 
-var isoDate = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
+// No trailing \b: in "2026-09-10T07:15:30Z" the digit and the T are both word
+// characters, so there is no boundary between them and a trailing \b would miss the
+// single most likely way a date reaches the wire.
+var isoDate = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}`)
 
 func assertClean(t *testing.T, label string, payload any) {
 	t.Helper()
