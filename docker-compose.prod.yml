@@ -15,11 +15,14 @@ x-backend-environment: &backend-environment
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://blindpulse.jonathanchang.my.id}
   STORAGE_LOCAL_ROOT: /data/journal
   STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL:-http://localhost:8080/api/v1/journal-media}
-  # Redis and Kafka already run on the shared network; the service joins them by alias.
-  REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+  # Redis is this project's own instance on the private network below. The bare `redis` alias on
+  # shared_network is claimed by other apps' Redis containers, so it must never be used here.
+  REDIS_ADDR: ${REDIS_ADDR:-blindpulse-redis:6379}
   REDIS_PASSWORD: ${REDIS_PASSWORD:-}
   REDIS_NAMESPACE: ${REDIS_NAMESPACE:-blindpulse}
-  KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+  # No broker runs on the server yet. Empty leaves events queued in the outbox and the worker
+  # idling; set KAFKA_BROKERS in .env once one exists and the relay drains the backlog.
+  KAFKA_BROKERS: ${KAFKA_BROKERS:-}
   KAFKA_TOPIC_PREFIX: ${KAFKA_TOPIC_PREFIX:-blindpulse}
   KAFKA_CONSUMER_GROUP: ${KAFKA_CONSUMER_GROUP:-blindpulse-projectors}
 
@@ -46,6 +49,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     ports:
       - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
     volumes:
@@ -54,6 +59,7 @@ services:
       shared_network:
         aliases:
           - blindpulse-backend
+      internal:
     init: true
     restart: unless-stopped
     read_only: true
@@ -88,10 +94,33 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # Replay hot-path store. It is a cache and a lease table, never the source of truth, so it lives
+  # on a private network with no published port and a hard memory ceiling.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    networks:
+      internal:
+        aliases:
+          - blindpulse-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   shared_network:
     external: true
     name: shared_network
+  internal:
+    internal: true
 
 volumes:
   journal-data:
+  redis-data:
