@@ -18,7 +18,7 @@ waiting on the next slice.
 | **03C** | Session wiring in the UI — start from a feed, transport controls, cursor readout, progress | FE | **DONE** |
 | **03D** | Chart canvas at 60 FPS with EMAs, RSI and scale modes | FE | **DONE** |
 | **03E** | Websocket streaming, Redis pub/sub fan-out, reconnect and backpressure | BE + FE | **DONE** |
-| **03F** | Drawing tools — fibonacci, trendlines, zones | FE | Planned |
+| **03F** | Drawing tools — fibonacci, trendlines, zones | FE | **DONE** |
 
 03A is the foundation the rest sit on: once the cursor is server-authoritative and provably
 un-peekable, every later slice is presentation.

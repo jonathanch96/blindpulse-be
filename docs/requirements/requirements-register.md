@@ -76,10 +76,10 @@ the browser enforces is a rule a `curl` command ignores.
 | ID | Requirement | Owner | Sprint | Status |
 |---|---|---|---|---|
 | FR-TA-01 | Candlestick canvas holding 60 FPS at 10x with overlays | FE | 03D | **DONE** — measured 60.3 FPS / 0 dropped frames at 10x with EMAs + RSI |
-| FR-TA-02 | Trendline suite: freehand, horizontal, ray, extended, vertical | FE | 03 | PLANNED |
-| FR-TA-03 | Fibonacci retracement (0, .236, .382, .5, .618, .786, 1.0) and trend-based extensions | FE | 03 | PLANNED |
-| FR-TA-04 | Order block / supply-demand boxes with adjustable shading | FE | 03 | PLANNED |
-| FR-TA-05 | Polyline, brush, annotation note | FE | 03 | PLANNED |
+| FR-TA-02 | Trendline suite: freehand, horizontal, ray, extended, vertical | FE | 03F | **DONE** |
+| FR-TA-03 | Fibonacci retracement (0, .236, .382, .5, .618, .786, 1.0) and trend-based extensions | FE | 03F | **DONE** — decimal levels, tested invariant under the blinding map |
+| FR-TA-04 | Order block / supply-demand boxes with adjustable shading | FE | 03F | **DONE** |
+| FR-TA-05 | Polyline, brush, annotation note | FE | 03F | **DONE** — brush strokes thinned before they become anchors |
 | FR-TA-06 | On-chart interactive long/short brackets showing live target pips, stop risk and R:R | FE | 04 | PLANNED |
 | FR-TA-07 | RSI(14) sub-chart with OB/OS thresholds | FE | 03D | **DONE** — Wilder's RSI(14), 30/70 bands, undefined through the warmup rather than faked |
 | FR-TA-08 | Dual EMAs (20/50/200) and volume profile | FE | 03D | PARTIAL — EMA 20/50/200 and the volume pane done; the by-price volume *profile* is not built |
@@ -187,7 +187,7 @@ the browser enforces is a rule a `curl` command ignores.
 | 00 | Foundation and infrastructure | NFR-06, NFR-08 | DONE |
 | 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE except the account settings screen (FR-AUTH-04) |
 | 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | DONE — the 1,200-cycle archive (FR-FEED-02) is data loading, not code |
-| 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01..04 | IN PROGRESS — 03A/03B/03C/03D/03E done, 03F planned |
+| 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01..04 | DONE — 03A–03F all delivered; NFR-01's p99-under-load histogram is the one item still owed |
 | 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09 | PLANNED |
 | 05 | Journal, drawings and the mystery reveal | FR-JOURNAL-01..06, FR-REVEAL-01..03, FR-TA-11, FR-UI-04/10, BR-08 | PLANNED |
 | 06 | Analytics, discipline index and cross-iteration | FR-ANALYTICS-01..09, FR-REVEAL-04/05, FR-ACCT-06..09, FR-TA-09, FR-UI-06/11 | PLANNED |
