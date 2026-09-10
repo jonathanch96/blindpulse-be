@@ -89,12 +89,20 @@ type feedReaderStub struct {
 	feed domainfeed.Feed
 	// served records the widest range ever handed out, so a test can assert what the trader could
 	// actually have seen rather than only what the API returned.
-	served [][2]int
+	served          [][2]int
+	viewedTimeframe market.Timeframe
+	viewedUpto      int
 }
 
 func (f *feedReaderStub) Get(_ context.Context, _ uuid.UUID) (*domainfeed.Feed, error) {
 	copied := f.feed
 	return &copied, nil
+}
+
+func (f *feedReaderStub) ViewBars(_ context.Context, _ uuid.UUID, timeframe market.Timeframe, upto int) ([]domainfeed.Bar, error) {
+	f.viewedTimeframe = timeframe
+	f.viewedUpto = upto
+	return []domainfeed.Bar{{Index: 0, Close: decimal.NewFromInt(100)}}, nil
 }
 
 func (f *feedReaderStub) Bars(_ context.Context, _ uuid.UUID, from, to int) ([]domainfeed.Bar, error) {
@@ -419,5 +427,92 @@ func TestAStaleCacheCannotRewindTheRevealedEdge(t *testing.T) {
 
 	if current.RevealedIndex != 249 {
 		t.Fatalf("revealed = %d; a stale cache must not lower it below the stored 249", current.RevealedIndex)
+	}
+}
+
+// Switching the lens must not move the cursor. If the position were re-expressed per timeframe,
+// going 15m -> 1h -> 15m would round it, and rounding a cursor forward is a hindsight leak.
+func TestSwitchingTimeframeDoesNotMoveTheCursor(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, true)
+	entity := h.start(t)
+	if _, err := h.service.Step(context.Background(), h.userID, entity.ID, 37); err != nil {
+		t.Fatalf("Step() error = %v", err)
+	}
+
+	switched, err := h.service.SetTimeframe(context.Background(), h.userID, entity.ID, market.TF1h)
+	if err != nil {
+		t.Fatalf("SetTimeframe() error = %v", err)
+	}
+
+	if switched.CursorIndex != 236 || switched.RevealedIndex != 236 {
+		t.Fatalf("cursor = %d, revealed = %d; switching the lens must leave both at 236",
+			switched.CursorIndex, switched.RevealedIndex)
+	}
+	if switched.Timeframe != market.TF1h {
+		t.Fatalf("timeframe = %s, want 1h", switched.Timeframe)
+	}
+
+	// And back again, unchanged.
+	back, err := h.service.SetTimeframe(context.Background(), h.userID, entity.ID, market.TF15m)
+	if err != nil {
+		t.Fatalf("SetTimeframe() back error = %v", err)
+	}
+	if back.CursorIndex != 236 || back.RevealedIndex != 236 {
+		t.Fatalf("round-tripping the timeframe moved the cursor to %d/%d", back.CursorIndex, back.RevealedIndex)
+	}
+}
+
+// A feed built on 15m bars has no 1m data for its window. Serving one would mean fabricating
+// price action that never happened.
+func TestTimeframeFinerThanTheFeedIsRefused(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, true)
+	entity := h.start(t)
+
+	_, err := h.service.SetTimeframe(context.Background(), h.userID, entity.ID, market.TF1m)
+
+	if !apperror.Is(err, "INVALID_TIMEFRAME") {
+		t.Fatalf("finer timeframe err = %v, want INVALID_TIMEFRAME", err)
+	}
+}
+
+// The view is bounded by the revealed edge, not the view cursor: rewinding changes where the
+// trader is looking, never what they are permitted to know.
+func TestViewBarsAreBoundedByTheRevealedEdgeNotTheCursor(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, true)
+	entity := h.start(t)
+	if _, err := h.service.Step(context.Background(), h.userID, entity.ID, 40); err != nil {
+		t.Fatalf("Step() error = %v", err)
+	}
+	if _, err := h.service.Step(context.Background(), h.userID, entity.ID, -30); err != nil {
+		t.Fatalf("rewind error = %v", err)
+	}
+
+	if _, err := h.service.ViewBars(context.Background(), h.userID, entity.ID, market.TF1h); err != nil {
+		t.Fatalf("ViewBars() error = %v", err)
+	}
+
+	if h.feeds.viewedUpto != 239 {
+		t.Fatalf("view was built up to base bar %d; want the revealed edge 239, not the rewound cursor 209",
+			h.feeds.viewedUpto)
+	}
+}
+
+func TestViewBarsDefaultsToTheSessionTimeframe(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, true)
+	entity := h.start(t)
+	if _, err := h.service.SetTimeframe(context.Background(), h.userID, entity.ID, market.TF4h); err != nil {
+		t.Fatalf("SetTimeframe() error = %v", err)
+	}
+
+	if _, err := h.service.ViewBars(context.Background(), h.userID, entity.ID, ""); err != nil {
+		t.Fatalf("ViewBars() error = %v", err)
+	}
+
+	if h.feeds.viewedTimeframe != market.TF4h {
+		t.Fatalf("view timeframe = %s, want the session's 4h", h.feeds.viewedTimeframe)
 	}
 }

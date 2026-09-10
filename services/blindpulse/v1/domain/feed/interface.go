@@ -19,8 +19,16 @@ type Service interface {
 	// window whose ending they already know — which would reintroduce exactly the hindsight the
 	// product removes.
 	Random(ctx context.Context, userID uuid.UUID, filter ListFilter) (*domainfeed.Feed, error)
-	// Bars returns the blinded candles of a feed between two indices, inclusive.
+	// Bars returns the blinded candles of a feed between two indices, inclusive, at the feed's
+	// base timeframe.
 	Bars(ctx context.Context, id uuid.UUID, from, to int) ([]domainfeed.Bar, error)
+	// ViewBars returns the feed rolled up to a viewing timeframe, covering only base bars at or
+	// before uptoBaseIndex. The last bar may be flagged as still forming.
+	//
+	// The cursor is expressed in *base* bars and stays that way: a session's position is one
+	// number regardless of which timeframe the trader happens to be looking at, so switching
+	// timeframes can never move it.
+	ViewBars(ctx context.Context, id uuid.UUID, timeframe market.Timeframe, uptoBaseIndex int) ([]domainfeed.Bar, error)
 }
 
 type Repository interface {

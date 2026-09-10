@@ -71,14 +71,20 @@ type Bar struct {
 	Low    string `json:"low"`
 	Close  string `json:"close"`
 	Volume string `json:"volume"`
+	// True when this higher-timeframe bar is still forming at the cursor. The client must draw it
+	// distinctly — hollow or dashed — never as a closed candle.
+	Forming bool `json:"forming"`
 }
 
 // Bars is the blinded candle payload. Each bar carries an index, never a timestamp.
 type Bars struct {
 	FeedID string `json:"feed_id"`
-	From   int    `json:"from"`
-	To     int    `json:"to"`
-	Bars   []Bar  `json:"bars"`
+	// The timeframe these bars are aggregated to. Indices are in this timeframe's own space, not
+	// the feed's base — a 1h view's bar 3 is not the base series' bar 3.
+	Timeframe string `json:"timeframe"`
+	From      int    `json:"from"`
+	To        int    `json:"to"`
+	Bars      []Bar  `json:"bars"`
 }
 
 // FromDomainBars renders candles for the wire. Prices are strings for the same reason they are
@@ -91,7 +97,7 @@ func FromDomainBars(bars []domainfeed.Bar) []Bar {
 			Index: bar.Index,
 			Open:  bar.Open.String(), High: bar.High.String(),
 			Low: bar.Low.String(), Close: bar.Close.String(),
-			Volume: bar.Volume.String(),
+			Volume: bar.Volume.String(), Forming: bar.Forming,
 		})
 	}
 	return wire

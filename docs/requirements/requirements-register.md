@@ -67,7 +67,7 @@ the browser enforces is a rule a `curl` command ignores.
 | FR-REPLAY-03 | Continuous playback at 0.5x / 1x / 3x / 5x / 10x | BOTH | 03A/03E | BE speed control DONE; streaming in 03E |
 | FR-REPLAY-04 | Progress indicator (`142 / 500 bars scanned`) | FE | 03 | PLANNED |
 | FR-REPLAY-05 | Websocket streams frames at playback speed, resumable from the cursor | BOTH | 03 | PLANNED |
-| FR-REPLAY-06 | Multi-timeframe toggle (1m / 5m / 15m / 1h / 4h / 1D) over the same cursor | BOTH | 03 | PLANNED |
+| FR-REPLAY-06 | Multi-timeframe toggle (1m / 5m / 15m / 1h / 4h / 1D) over the same cursor | BOTH | 03B/03C | BE DONE |
 | FR-REPLAY-07 | Pause, seek, close; idle sessions time out | BOTH | 03A | BE DONE except the idle sweeper |
 | FR-REPLAY-08 | Simulated feed latency surfaced in the UI | BOTH | 03 | PLANNED |
 

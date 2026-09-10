@@ -30,6 +30,7 @@ func (c *controller) RegisterRoutes(group *gin.RouterGroup) {
 	group.POST("/sessions/:id/step", c.step)
 	group.POST("/sessions/:id/seek", c.seek)
 	group.POST("/sessions/:id/speed", c.speed)
+	group.POST("/sessions/:id/timeframe", c.timeframe)
 	group.POST("/sessions/:id/pause", c.pause)
 	group.POST("/sessions/:id/resume", c.resume)
 	group.POST("/sessions/:id/close", c.close)
@@ -183,6 +184,32 @@ func (c *controller) bars(ctx *gin.Context) {
 		}
 		to = parsed
 	}
+	// A timeframe view returns the whole rolled-up series up to the revealed edge, because higher
+	// timeframe indices are their own space — slicing it by base-bar indices would be meaningless.
+	view := market.Timeframe(ctx.Query("timeframe"))
+	if view != "" || ctx.Query("view") == "true" {
+		blinded, err := c.sessions.ViewBars(ctx, actor(ctx).UserID, id, view)
+		if err != nil {
+			response.Error(ctx, err)
+			return
+		}
+		resolved := view
+		if resolved == "" {
+			if entity, err := c.sessions.Get(ctx, actor(ctx).UserID, id); err == nil {
+				resolved = entity.Timeframe
+			}
+		}
+		last := len(blinded) - 1
+		if last < 0 {
+			last = 0
+		}
+		response.OK(ctx, "SESSION_BARS_FETCHED", feedresponse.Bars{
+			FeedID: id.String(), Timeframe: string(resolved), From: 0, To: last,
+			Bars: feedresponse.FromDomainBars(blinded),
+		})
+		return
+	}
+
 	blinded, err := c.sessions.Bars(ctx, actor(ctx).UserID, id, from, to)
 	if err != nil {
 		response.Error(ctx, err)
@@ -192,9 +219,42 @@ func (c *controller) bars(ctx *gin.Context) {
 	if len(blinded) == 0 {
 		resolvedTo = from
 	}
+	entity, err := c.sessions.Get(ctx, actor(ctx).UserID, id)
+	if err != nil {
+		response.Error(ctx, err)
+		return
+	}
 	response.OK(ctx, "SESSION_BARS_FETCHED", feedresponse.Bars{
-		FeedID: id.String(), From: from, To: resolvedTo, Bars: feedresponse.FromDomainBars(blinded),
+		FeedID: id.String(), Timeframe: string(entity.Timeframe), From: from, To: resolvedTo,
+		Bars: feedresponse.FromDomainBars(blinded),
 	})
+}
+
+// timeframe godoc
+// @Summary Switch the viewing timeframe
+// @Description Changes the lens only. The cursor is one number in base bars and does not move.
+// @Tags sessions
+// @Security BearerAuth
+// @Param id path string true "Session ID"
+// @Param body body sessionrequest.Timeframe true "Timeframe"
+// @Success 200 {object} response.Envelope{data=sessionresponse.Session}
+// @Failure 400 {object} response.Envelope
+// @Router /sessions/{id}/timeframe [post]
+func (c *controller) timeframe(ctx *gin.Context) {
+	id, ok := sessionID(ctx)
+	if !ok {
+		return
+	}
+	var request sessionrequest.Timeframe
+	if !bind(ctx, &request) {
+		return
+	}
+	entity, err := c.sessions.SetTimeframe(ctx, actor(ctx).UserID, id, market.Timeframe(request.Timeframe))
+	if err != nil {
+		response.Error(ctx, err)
+		return
+	}
+	c.render(ctx, entity, "SESSION_TIMEFRAME_SET")
 }
 
 // step godoc

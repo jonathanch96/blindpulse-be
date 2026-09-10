@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	domainfeed "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/feed"
+	"github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/market"
 	domainsession "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/session"
 )
 
@@ -19,11 +20,19 @@ type Service interface {
 	// edge is refused rather than clamped.
 	Seek(ctx context.Context, userID, sessionID uuid.UUID, index int) (*domainsession.Session, error)
 	SetSpeed(ctx context.Context, userID, sessionID uuid.UUID, speed string) (*domainsession.Session, error)
+	// SetTimeframe changes which timeframe the trader is viewing. It never moves the cursor: the
+	// session's position is one number in base bars, and looking at it through a coarser lens
+	// cannot reveal or un-reveal anything.
+	SetTimeframe(ctx context.Context, userID, sessionID uuid.UUID, timeframe market.Timeframe) (*domainsession.Session, error)
 	Pause(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Session, error)
 	Resume(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Session, error)
 	Close(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Session, error)
-	// Bars returns blinded candles, bounded by what the session has released.
+	// Bars returns blinded candles at the feed's base timeframe, bounded by what the session has
+	// released.
 	Bars(ctx context.Context, userID, sessionID uuid.UUID, from, to int) ([]domainfeed.Bar, error)
+	// ViewBars returns the session rolled up to a timeframe, as of the revealed edge. Pass an
+	// empty timeframe to use the session's current one.
+	ViewBars(ctx context.Context, userID, sessionID uuid.UUID, timeframe market.Timeframe) ([]domainfeed.Bar, error)
 }
 
 type Repository interface {
@@ -48,6 +57,7 @@ type StateStore interface {
 type FeedReader interface {
 	Get(ctx context.Context, id uuid.UUID) (*domainfeed.Feed, error)
 	Bars(ctx context.Context, id uuid.UUID, from, to int) ([]domainfeed.Bar, error)
+	ViewBars(ctx context.Context, id uuid.UUID, timeframe market.Timeframe, uptoBaseIndex int) ([]domainfeed.Bar, error)
 }
 
 // AccountReader lets the session verify ownership and that the account is tradeable, without the

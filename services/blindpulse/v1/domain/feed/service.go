@@ -253,3 +253,60 @@ func trimmedOrNil(value string) *string {
 	}
 	return &trimmed
 }
+
+// ViewBars rolls the feed up to a viewing timeframe as of a cursor position.
+//
+// The blinding property here is structural rather than checked: the aggregator is handed only base
+// bars at or before the cursor, so a higher-timeframe bar it produces can only ever summarize data
+// the session has already released. A completed 1h bar in the result covers an hour that has fully
+// elapsed for this trader; the trailing bar, if any, is flagged as forming.
+func (s *service) ViewBars(ctx context.Context, id uuid.UUID, timeframe market.Timeframe, uptoBaseIndex int) ([]domainfeed.Bar, error) {
+	entity, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !timeframe.Valid() {
+		return nil, apperror.New("INVALID_TIMEFRAME")
+	}
+	if uptoBaseIndex < 0 || uptoBaseIndex >= entity.TotalBars {
+		return nil, apperror.New("INVALID_CURSOR")
+	}
+	viewInterval, _ := timeframe.Duration()
+	baseInterval, _ := entity.BaseTimeframe.Duration()
+	if viewInterval < baseInterval {
+		// A feed built on 15m bars cannot be shown at 1m: the finer data was never loaded for this
+		// window, and inventing it would be fabricating price action.
+		return nil, apperror.Newf("INVALID_TIMEFRAME",
+			"this feed's finest available timeframe is %s", entity.BaseTimeframe)
+	}
+
+	real, err := s.deps.Bars.ListWindow(ctx, entity.InstrumentID, entity.BaseTimeframe,
+		entity.WindowStart.Unix(), entity.WindowEnd.Unix())
+	if err != nil {
+		return nil, err
+	}
+	if uptoBaseIndex >= len(real) {
+		return nil, apperror.New("BARS_EXHAUSTED")
+	}
+	// The slice is the enforcement: nothing past the cursor is even visible to the aggregator.
+	revealed := real[:uptoBaseIndex+1]
+
+	if timeframe == entity.BaseTimeframe {
+		blinded := make([]domainfeed.Bar, 0, len(revealed))
+		for index, bar := range revealed {
+			blinded = append(blinded, entity.Normalization.ApplyBar(bar, index))
+		}
+		return blinded, nil
+	}
+
+	rolled, lastIsForming := AggregateView(revealed, timeframe)
+	blinded := make([]domainfeed.Bar, 0, len(rolled))
+	for index, bar := range rolled {
+		view := entity.Normalization.ApplyBar(bar, index)
+		if lastIsForming && index == len(rolled)-1 {
+			view.Forming = true
+		}
+		blinded = append(blinded, view)
+	}
+	return blinded, nil
+}

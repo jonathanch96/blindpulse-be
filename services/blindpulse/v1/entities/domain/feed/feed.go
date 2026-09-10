@@ -102,6 +102,10 @@ type Bar struct {
 	Low    decimal.Decimal `json:"low"`
 	Close  decimal.Decimal `json:"close"`
 	Volume decimal.Decimal `json:"volume"`
+	// Forming marks a higher-timeframe bar that has not closed yet at the cursor. A live chart
+	// shows this bar, so withholding it would be wrong — but rendering it as a finished candle
+	// would be worse, because a closed 1h bar implies 59 minutes the trader has not been shown.
+	Forming bool `json:"forming,omitempty"`
 }
 
 // Feed is the full record, including the parts a trader must not see before the reveal. It never

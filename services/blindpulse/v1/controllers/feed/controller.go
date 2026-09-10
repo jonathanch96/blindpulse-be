@@ -206,7 +206,13 @@ func (c *controller) bars(ctx *gin.Context) {
 		response.Error(ctx, err)
 		return
 	}
+	entity, err := c.feeds.Get(ctx, id)
+	if err != nil {
+		response.Error(ctx, err)
+		return
+	}
 	response.OK(ctx, "FEED_BARS_FETCHED", feedresponse.Bars{
-		FeedID: id.String(), From: from, To: to, Bars: feedresponse.FromDomainBars(blinded),
+		FeedID: id.String(), Timeframe: string(entity.BaseTimeframe), From: from, To: to,
+		Bars: feedresponse.FromDomainBars(blinded),
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jblabs/blindpulse-be/pkg/apperror"
 	domainfeed "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/feed"
+	"github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/market"
 	domainsession "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/session"
 	"github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/event"
 	"github.com/shopspring/decimal"
@@ -308,4 +309,47 @@ func cryptoSeed() int64 {
 		return time.Now().UnixNano()
 	}
 	return int64(binary.LittleEndian.Uint64(buffer[:]) >> 1)
+}
+
+// SetTimeframe changes the viewing lens. It deliberately does not touch the cursor: a session's
+// position is one number in base bars, and switching between 15m and 1h must not move it. If the
+// cursor were re-expressed per timeframe, switching to a coarser view and back would round it —
+// and rounding a cursor forward is a hindsight leak.
+func (s *service) SetTimeframe(ctx context.Context, userID, sessionID uuid.UUID, timeframe market.Timeframe) (*domainsession.Session, error) {
+	entity, err := s.loadLive(ctx, userID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !timeframe.Valid() {
+		return nil, apperror.New("INVALID_TIMEFRAME")
+	}
+	feed, err := s.deps.Feeds.Get(ctx, entity.FeedID)
+	if err != nil {
+		return nil, err
+	}
+	viewInterval, _ := timeframe.Duration()
+	baseInterval, _ := feed.BaseTimeframe.Duration()
+	if viewInterval < baseInterval {
+		return nil, apperror.Newf("INVALID_TIMEFRAME",
+			"this feed's finest available timeframe is %s", feed.BaseTimeframe)
+	}
+	entity.Timeframe = timeframe
+	return s.persistCursor(ctx, entity)
+}
+
+// ViewBars renders the session at a timeframe, as of the revealed edge. The edge — not the view
+// cursor — is what bounds it: rewinding changes where the trader is looking, not what they are
+// permitted to know.
+func (s *service) ViewBars(ctx context.Context, userID, sessionID uuid.UUID, timeframe market.Timeframe) ([]domainfeed.Bar, error) {
+	entity, err := s.load(ctx, userID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if timeframe == "" {
+		timeframe = entity.Timeframe
+	}
+	if !timeframe.Valid() {
+		return nil, apperror.New("INVALID_TIMEFRAME")
+	}
+	return s.deps.Feeds.ViewBars(ctx, entity.FeedID, timeframe, entity.RevealedIndex)
 }

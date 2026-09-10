@@ -16,9 +16,32 @@ import (
 // dropped — a bar that only saw part of its interval is not a bar, and publishing it as one would
 // show a trader a candle that never closed.
 func Aggregate(bars []market.Bar, target market.Timeframe) []market.Bar {
+	aggregated, lastIsPartial := aggregateBuckets(bars, target)
+	if lastIsPartial && len(aggregated) > 0 {
+		// A bucket the input only partly covered is not a bar. Publishing it as one shows a candle
+		// that never closed, and in a replay it would leak the future.
+		return aggregated[:len(aggregated)-1]
+	}
+	return aggregated
+}
+
+// AggregateView rolls up for *display at a cursor*, where the trailing partial bucket is exactly
+// what a live chart shows: the bar currently forming. It is returned, and the second value says so
+// — the caller must render it distinctly and must never treat it as closed.
+//
+// The safety property is in what this function is given, not in what it does: pass it only base
+// bars at or before the cursor, and the forming bar can only ever summarize revealed data.
+func AggregateView(bars []market.Bar, target market.Timeframe) (aggregated []market.Bar, lastIsForming bool) {
+	return aggregateBuckets(bars, target)
+}
+
+// aggregateBuckets is the shared roll-up. Buckets align to the UTC epoch, so a 1h bar always opens
+// on the hour regardless of where the input happens to begin — otherwise every higher timeframe in
+// the system would be offset from every chart the trader has ever seen.
+func aggregateBuckets(bars []market.Bar, target market.Timeframe) ([]market.Bar, bool) {
 	interval, ok := target.Duration()
 	if !ok || len(bars) == 0 {
-		return nil
+		return nil, false
 	}
 	seconds := int64(interval / time.Second)
 
@@ -55,17 +78,16 @@ func Aggregate(bars []market.Bar, target market.Timeframe) []market.Bar {
 		current.Volume = current.Volume.Add(bar.Volume)
 	}
 
-	// The final bucket is kept only if the input actually covered it. Without this the last bar of
-	// every load would be a partial candle masquerading as a complete one.
-	if current != nil {
-		last := bars[len(bars)-1].OpenedAt.UTC().Unix()
-		baseInterval, hasBase := bars[0].Timeframe.Duration()
-		covered := last + int64(baseInterval/time.Second)
-		if hasBase && covered >= bucketStart+seconds {
-			aggregated = append(aggregated, *current)
-		}
+	if current == nil {
+		return aggregated, false
 	}
-	return aggregated
+	aggregated = append(aggregated, *current)
+
+	// The final bucket is complete only if the input actually ran to its end.
+	last := bars[len(bars)-1].OpenedAt.UTC().Unix()
+	baseInterval, hasBase := bars[0].Timeframe.Duration()
+	covered := last + int64(baseInterval/time.Second)
+	return aggregated, !hasBase || covered < bucketStart+seconds
 }
 
 func max64(a, b int64) int64 {

@@ -22,3 +22,7 @@ type Speed struct {
 	// is fine, but the rule holds everywhere so nobody has to remember where it does not.
 	Speed string `json:"speed" binding:"required,numeric"`
 }
+
+type Timeframe struct {
+	Timeframe string `json:"timeframe" binding:"required,oneof=1m 5m 15m 30m 1h 4h 1d 1w"`
+}
