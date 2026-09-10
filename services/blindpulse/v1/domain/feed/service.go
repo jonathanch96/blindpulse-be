@@ -130,6 +130,29 @@ func (s *service) Random(ctx context.Context, userID uuid.UUID, filter ListFilte
 	return &candidates[stats.Index(s.deps.Rand, len(candidates))], nil
 }
 
+// windowBars is the one place a feed's real bars are fetched.
+//
+// A feed's window is immutable once built, so this is a cache with no invalidation question — only
+// a TTL. Both read paths go through here rather than calling ListWindow directly, because the
+// streaming path calls it once per released bar and a second call site would be a second chance to
+// forget the cache.
+func (s *service) windowBars(ctx context.Context, entity *domainfeed.Feed) ([]market.Bar, error) {
+	if s.deps.Windows != nil {
+		if cached, ok := s.deps.Windows.Get(ctx, entity.ID); ok {
+			return cached, nil
+		}
+	}
+	real, err := s.deps.Bars.ListWindow(ctx, entity.InstrumentID, entity.BaseTimeframe,
+		entity.WindowStart.Unix(), entity.WindowEnd.Unix())
+	if err != nil {
+		return nil, err
+	}
+	if s.deps.Windows != nil {
+		s.deps.Windows.Put(ctx, entity.ID, real)
+	}
+	return real, nil
+}
+
 func (s *service) Bars(ctx context.Context, id uuid.UUID, from, to int) ([]domainfeed.Bar, error) {
 	entity, err := s.Get(ctx, id)
 	if err != nil {
@@ -138,8 +161,7 @@ func (s *service) Bars(ctx context.Context, id uuid.UUID, from, to int) ([]domai
 	if from < 0 || to < from || to >= entity.TotalBars {
 		return nil, apperror.New("INVALID_CURSOR")
 	}
-	real, err := s.deps.Bars.ListWindow(ctx, entity.InstrumentID, entity.BaseTimeframe,
-		entity.WindowStart.Unix(), entity.WindowEnd.Unix())
+	real, err := s.windowBars(ctx, entity)
 	if err != nil {
 		return nil, err
 	}
@@ -280,8 +302,7 @@ func (s *service) ViewBars(ctx context.Context, id uuid.UUID, timeframe market.T
 			"this feed's finest available timeframe is %s", entity.BaseTimeframe)
 	}
 
-	real, err := s.deps.Bars.ListWindow(ctx, entity.InstrumentID, entity.BaseTimeframe,
-		entity.WindowStart.Unix(), entity.WindowEnd.Unix())
+	real, err := s.windowBars(ctx, entity)
 	if err != nil {
 		return nil, err
 	}

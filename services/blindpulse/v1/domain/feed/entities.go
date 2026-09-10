@@ -13,6 +13,9 @@ type Dependencies struct {
 	Repo        Repository
 	Bars        BarRepository
 	Instruments InstrumentRepository
+	// Windows caches the immutable bar window. Optional: nil means every read goes to PostgreSQL,
+	// which is correct and slower.
+	Windows WindowCache
 	// Rand draws the normalization parameters. Injected so the builder is testable and so a feed
 	// can be rebuilt deterministically from a recorded seed.
 	Rand  stats.Source

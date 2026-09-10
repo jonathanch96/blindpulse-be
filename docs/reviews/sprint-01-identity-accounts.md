@@ -21,9 +21,9 @@ was written, tested, and never wired to a route.
 | | ID | Finding |
 |---|---|---|
 | ~~High~~ **FIXED** | `BE-01-1` | ~~`/auth/login` and `/auth/register` have no rate limiting~~ — two independent budgets (per address, per email) now wired onto the auth group, with a test over the real route table |
-| Medium | `BE-01-2` | `cache.Incr` — the distributed limiter primitive — is dead code |
+| ~~Medium~~ **FIXED** | `BE-01-2` | ~~`cache.Incr` is dead code~~ — the auth throttle now counts in Redis, so the limit holds across replicas instead of being multiplied by however many are running |
 | Low | `BE-01-3` | `FR-AUTH-04` is PARTIAL and has been since Sprint 01; no account settings screen |
-| Low | `BE-01-4` | Controller packages have no tests; auth is exercised only through the domain |
+| ~~Low~~ **PARTLY FIXED** | `BE-01-4` | ~~Controller packages have no tests~~ — `controllers/routes_test.go` now covers the auth group's composition and error paths; the other controller packages are still untested |
 
 ## What holds up
 

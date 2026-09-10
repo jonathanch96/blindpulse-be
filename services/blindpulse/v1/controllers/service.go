@@ -46,8 +46,8 @@ type Dependencies struct {
 }
 
 type Service struct {
-	throttleByAddress *middleware.RateLimiter
-	throttleByEmail   *middleware.RateLimiter
+	throttleByAddress middleware.Limiter
+	throttleByEmail   middleware.Limiter
 	auth              authcontroller.Controller
 	users             usercontroller.Controller
 	accounts          accountcontroller.Controller
@@ -84,6 +84,9 @@ func NewService(deps Dependencies) *Service {
 		Repo:        feedsdb.New(deps.DB),
 		Bars:        barsdb.New(deps.DB),
 		Instruments: instrumentRepo,
+		// A feed's window is immutable, so caching it is pure win: the streaming path was reading
+		// the whole window from PostgreSQL for every bar it released.
+		Windows: barsdb.NewRedisWindowCache(deps.Cache, deps.Cfg.Redis.BarWindowTTL),
 	})
 	// Streaming adapters. With Redis configured, frames cross replicas over pub/sub and one
 	// replica holds the driver lease; without it, both degrade to in-process equivalents that are
@@ -120,14 +123,19 @@ func NewService(deps Dependencies) *Service {
 		Holder: instanceID(),
 	})
 	return &Service{
-		throttleByAddress: middleware.NewRateLimiter(deps.Cfg.Auth.AddressAttempts, deps.Cfg.Auth.Window),
-		throttleByEmail:   middleware.NewRateLimiter(deps.Cfg.Auth.EmailAttempts, deps.Cfg.Auth.Window),
-		auth:              authcontroller.NewController(userService),
-		users:             usercontroller.NewController(userService),
-		accounts:          accountcontroller.NewController(accountService),
-		feeds:             feedcontroller.NewController(feedService, instrumentRepo),
-		sessions:          sessioncontroller.NewController(sessionService, feedService, deps.Cfg.CORS.AllowedOrigins),
-		issuer:            issuer,
+		// Counted in Redis where it is available, so the limit holds across replicas rather than
+		// being multiplied by however many are running. Without Redis both fall back to the
+		// in-process bucket, which is correct for a single instance.
+		throttleByAddress: middleware.NewDistributedRateLimiter(
+			deps.Cache, "throttle:auth:addr", deps.Cfg.Auth.AddressAttempts, deps.Cfg.Auth.Window),
+		throttleByEmail: middleware.NewDistributedRateLimiter(
+			deps.Cache, "throttle:auth:email", deps.Cfg.Auth.EmailAttempts, deps.Cfg.Auth.Window),
+		auth:     authcontroller.NewController(userService),
+		users:    usercontroller.NewController(userService),
+		accounts: accountcontroller.NewController(accountService),
+		feeds:    feedcontroller.NewController(feedService, instrumentRepo),
+		sessions: sessioncontroller.NewController(sessionService, feedService, deps.Cfg.CORS.AllowedOrigins),
+		issuer:   issuer,
 	}
 }
 

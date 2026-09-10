@@ -47,6 +47,8 @@ func main() {
 		barCount   = flag.Int("bars", 800, "bars in the feed window")
 		warmup     = flag.Int("warmup", 200, "lookback bars shown before the cursor moves")
 		macroLabel = flag.String("macro", "", "macro label, withheld until the reveal")
+		tickSize   = flag.String("tick", "", "tick size; derived from the asset class and symbol when empty")
+		quote      = flag.String("quote", "", "quote currency; derived from the symbol when empty")
 		publish    = flag.Bool("publish", true, "publish the feed to the catalogue")
 	)
 	flag.Parse()
@@ -73,15 +75,32 @@ func main() {
 	if displayName == "" {
 		displayName = *symbol
 	}
+	// Derived rather than hardcoded. Every instrument used to be stamped with an FX tick and a USD
+	// quote whatever it was, which is right for EURUSD and wrong for USDJPY, an equity and BTC.
+	// Nothing reads tick size yet; Sprint 04's order gate is the first consumer, and there a wrong
+	// tick produces a plausible-looking size that is off by a factor of a hundred.
+	assetClass := market.AssetClass(*class)
+	conventions := market.DeriveConventions(*symbol, assetClass)
+	if *quote != "" {
+		conventions.QuoteCurrency = strings.ToUpper(*quote)
+	}
+	if *tickSize != "" {
+		parsed, err := decimal.NewFromString(*tickSize)
+		if err != nil || !parsed.IsPositive() {
+			fatal(fmt.Errorf("-tick %q is not a positive decimal", *tickSize))
+		}
+		conventions.TickSize = parsed
+	}
 	instrument, err := instruments.Upsert(ctx, &market.Instrument{
 		Symbol: strings.ToUpper(*symbol), DisplayName: displayName,
-		AssetClass: market.AssetClass(*class), QuoteCurrency: "USD",
-		TickSize: decimal.RequireFromString("0.00001"), ContractSize: decimal.NewFromInt(1),
+		AssetClass: assetClass, QuoteCurrency: conventions.QuoteCurrency,
+		TickSize: conventions.TickSize, ContractSize: conventions.ContractSize,
 	})
 	if err != nil {
 		fatal(err)
 	}
-	log.Info("instrument ready", "symbol", instrument.Symbol, "id", instrument.ID)
+	log.Info("instrument ready", "symbol", instrument.Symbol, "id", instrument.ID,
+		"quote", instrument.QuoteCurrency, "tick", instrument.TickSize.String())
 
 	if *file != "" {
 		if err := ingest(ctx, bars, instrument, *file, log.Info); err != nil {

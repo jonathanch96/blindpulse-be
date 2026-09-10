@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
@@ -79,10 +80,81 @@ func (l *RateLimiter) allow(key string) (bool, time.Duration) {
 	return true, 0
 }
 
+// Limiter is what the middleware needs: a decision and, when refused, how long to wait.
+//
+// Two implementations. The in-memory one above is per-process, so on N replicas the effective limit
+// is N × the configured one. The Redis one below counts across every replica, which is what the
+// front door actually needs — and it is why `cache.Incr` exists. That primitive was written as
+// "the primitive behind the distributed rate limiter" and then had no caller at all (review
+// finding BE-01-2).
+type Limiter interface {
+	// Allow reports whether this key may proceed, and if not, how long until it may.
+	Allow(ctx context.Context, key string) (bool, time.Duration)
+}
+
+// Allow satisfies Limiter for the in-memory bucket. The context is unused: nothing here can block.
+func (l *RateLimiter) Allow(_ context.Context, key string) (bool, time.Duration) {
+	return l.allow(key)
+}
+
+// counter is the slice of pkg/cache the distributed limiter needs, named here so this package does
+// not depend on the whole cache client.
+type counter interface {
+	Incr(ctx context.Context, key string, window time.Duration) (int64, time.Duration, error)
+	Enabled() bool
+}
+
+// DistributedRateLimiter counts a fixed window in Redis, so the limit is the limit no matter how
+// many API replicas are running.
+//
+// A fixed window rather than a token bucket: it is one round trip, it is what `cache.Incr` gives,
+// and its known weakness — up to 2× the limit across a window boundary — is irrelevant for a
+// credential-stuffing budget measured in tens of attempts per quarter hour.
+type DistributedRateLimiter struct {
+	cache    counter
+	fallback *RateLimiter
+	limit    int64
+	window   time.Duration
+	prefix   string
+}
+
+func NewDistributedRateLimiter(client counter, prefix string, limit int, window time.Duration) *DistributedRateLimiter {
+	return &DistributedRateLimiter{
+		cache:    client,
+		fallback: NewRateLimiter(limit, window),
+		limit:    int64(limit),
+		window:   window,
+		prefix:   prefix,
+	}
+}
+
+func (l *DistributedRateLimiter) Allow(ctx context.Context, key string) (bool, time.Duration) {
+	// Without Redis this degrades to the in-process limiter rather than to no limiting at all —
+	// the same choice the replay frame bus makes. A single instance is exactly the case where
+	// per-process counting is correct anyway.
+	if l.cache == nil || !l.cache.Enabled() {
+		return l.fallback.Allow(ctx, key)
+	}
+	count, remaining, err := l.cache.Incr(ctx, l.prefix+":"+key, l.window)
+	if err != nil {
+		// A broken cache must not open the front door. Falling back to the in-process budget keeps
+		// a bound in place; failing closed entirely would turn a Redis blip into an outage of the
+		// login endpoint.
+		return l.fallback.Allow(ctx, key)
+	}
+	if count > l.limit {
+		if remaining <= 0 {
+			remaining = l.window
+		}
+		return false, remaining
+	}
+	return true, 0
+}
+
 // RateLimit rejects a request before the handler runs and gives clients an actionable Retry-After.
-func RateLimit(limiter *RateLimiter, key func(*gin.Context) string) gin.HandlerFunc {
+func RateLimit(limiter Limiter, key func(*gin.Context) string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		allowed, retryAfter := limiter.allow(key(c))
+		allowed, retryAfter := limiter.Allow(c.Request.Context(), key(c))
 		if allowed {
 			c.Next()
 			return

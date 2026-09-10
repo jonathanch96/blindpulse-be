@@ -64,7 +64,7 @@ func EmailKey(c *gin.Context) string {
 //
 // Ordering matters for what an attacker learns: the address limiter runs first, so an attacker
 // hammering one address is rejected before the body is read at all.
-func ThrottleAuth(byAddress, byEmail *RateLimiter) []gin.HandlerFunc {
+func ThrottleAuth(byAddress, byEmail Limiter) []gin.HandlerFunc {
 	return []gin.HandlerFunc{
 		RateLimit(byAddress, ClientKey),
 		RateLimit(byEmail, EmailKey),

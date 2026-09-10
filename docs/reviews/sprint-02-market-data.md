@@ -24,9 +24,9 @@ ingest findings below bite at volume, which is exactly what **Sprint 08** is abo
 |---|---|---|
 | ~~High~~ **FIXED** | `BE-02-1` | ~~Millisecond epochs parse as seconds~~ — the unit is now detected by magnitude and an implausible value is refused rather than guessed at |
 | ~~High~~ **FIXED** | `BE-02-2` | ~~`ValidateSeries` is never called~~ — the loader now refuses the whole file on any structural problem, before insert |
-| Medium | `BE-02-3` | Instrument tick size and quote currency are hardcoded for every asset class |
-| Medium | `BE-02-4` | `pkg/stats` — the kernel that decides feed difficulty — has no tests |
-| Low | `BE-02-5` | The sprint doc still reads `Status: PLANNED` |
+| ~~Medium~~ **FIXED** | `BE-02-3` | ~~Tick size and quote currency hardcoded for every asset class~~ — derived from asset class and symbol via `market.DeriveConventions`, overridable per run |
+| ~~Medium~~ **FIXED** | `BE-02-4` | ~~`pkg/stats` has no tests~~ — property tests over volatility, trend persistence, range draws and index uniformity |
+| ~~Low~~ **FIXED** | `BE-02-5` | ~~The sprint doc still reads `Status: PLANNED`~~ — corrected, along with sprint 03 which had drifted the same way |
 
 ## What holds up
 

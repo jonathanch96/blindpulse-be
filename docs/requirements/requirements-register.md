@@ -171,7 +171,7 @@ the browser enforces is a rule a `curl` command ignores.
 |---|---|---|---|---|---|
 | NFR-01 | Simulated tick latency under 15ms, displayed in the UI | §6.1 | BOTH | 03E | PARTIAL — measured 4–6ms at the socket against a live stack and displayed in the terminal; the p99 histogram under load is still owed |
 | NFR-02 | Candlestick canvas sustains 60 FPS at 10x with overlays | §6.2 | FE | 03D | **DONE** — measured in-browser at 10x: 60.3 FPS over 182 frames, 0 dropped, gap p99 16.80ms; draw cost 4.4ms p99 per the frontend's `docs/adr/0001-chart-rendering.md` |
-| NFR-03 | Deterministic session hashes over every action and fill | §6.3 | BE | 03 | Property test: same feed + seed ⇒ identical fills and hash |
+| NFR-03 | Deterministic session hashes over every action and fill | §6.3 | BE | **04** | PLANNED — re-dated from 03, which could not deliver it: there are no fills until Sprint 04. `Session.Seed` is drawn and stored as groundwork; `Session.RootHash` is a field nothing writes yet. Proof: same feed + seed ⇒ identical fills and hash |
 | NFR-04 | Full touch gestures on mobile web / PWA | §6.4 | FE | 03 | PARTIAL — `e2e/mobile-replay-terminal.spec.ts` drives a full session at 390px: tap-to-step, touch-drag crosshair, tool selection, no sideways scroll. Pinch-zoom and swipe-up sheets (§03.7) are **not built**, so the gestures are not yet "full" |
 | NFR-05 | Zero hindsight leakage in any pre-reveal payload | §1.2, §3.1 | BE | 02 | **DONE** — payload + struct guards in `entities/response/feed/leak_test.go`, verified non-vacuous |
 | NFR-06 | Events are durable and at-least-once; a broker outage loses nothing | — | BE | 00 | Outbox rows stay pending through an outage; verified locally | 
@@ -187,8 +187,8 @@ the browser enforces is a rule a `curl` command ignores.
 | 00 | Foundation and infrastructure | NFR-06, NFR-08 | DONE |
 | 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE except the account settings screen (FR-AUTH-04) |
 | 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | DONE — the archive and three ingest defects move to Sprint 08 |
-| 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01..04 | DONE — 03A–03F all delivered; NFR-01's p99-under-load histogram is the one item still owed |
-| 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09 | PLANNED |
+| 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01/02/04 | DONE — 03A–03F all delivered; NFR-01's p99-under-load histogram is the one item still owed |
+| 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09, **NFR-03** | PLANNED — five decisions to settle first, see the plan review |
 | 05 | Journal, drawings and the mystery reveal | FR-JOURNAL-01..06, FR-REVEAL-01..03, FR-TA-11, FR-UI-04/10, BR-08 | PLANNED |
 | 06 | Analytics, discipline index and cross-iteration | FR-ANALYTICS-01..09, FR-REVEAL-04/05, FR-ACCT-06..09, FR-TA-09, FR-UI-06/11 | PLANNED |
 | 07 | Institutional access and hardening | FR-AUTH-05..08 | PLANNED |

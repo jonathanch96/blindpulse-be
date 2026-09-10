@@ -59,3 +59,21 @@ type InstrumentRepository interface {
 	GetBySymbol(context.Context, string) (*market.Instrument, error)
 	List(context.Context) ([]market.Instrument, error)
 }
+
+// WindowCache holds a feed's bar window between reads.
+//
+// Every released bar used to cost a full-window read from PostgreSQL: building one stream frame
+// calls ViewBars, which fetches the whole window — up to 800 rows — and then normalizes and
+// aggregates the revealed prefix. At 10x playback with a 250ms tick that is roughly forty
+// full-window reads per second, per session (review finding BE-03-2).
+//
+// A feed's window is immutable once built, which makes this the easiest possible cache: there is no
+// invalidation question, only a TTL. `REDIS_BAR_WINDOW_TTL` was configured for exactly this and had
+// no caller.
+//
+// Every method may be a no-op. This is a cache, so a miss means "read PostgreSQL" and a write
+// failure costs a round trip, never a request.
+type WindowCache interface {
+	Get(ctx context.Context, feedID uuid.UUID) ([]market.Bar, bool)
+	Put(ctx context.Context, feedID uuid.UUID, bars []market.Bar)
+}

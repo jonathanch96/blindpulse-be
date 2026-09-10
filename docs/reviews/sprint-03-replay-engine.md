@@ -33,9 +33,9 @@ is a state the system can enter and cannot leave.
 |---|---|---|
 | ~~High~~ **FIXED** | `BE-03-1` | ~~An abandoned session locks its account out permanently~~ — the worker now sweeps idle sessions, using the index migration 000011 built for it |
 | ~~High~~ **FIXED** | `FE-03-1` | ~~NFR-04's stated proof is a Playwright project with no spec files~~ — `mobile-replay-terminal.spec.ts` now drives a full session at 390px, and writing it found a real bug: the transport controls were unreachable behind the workspace nav |
-| Medium | `BE-03-2` | Every released bar costs a full-window database read; the sprint doc says it should cost none |
-| Medium | `BE-03-3` | NFR-03 (deterministic session hashes) is listed under Sprint 03 and is not implemented |
-| Low | `BE-03-4` | `pkg/cache`'s lease scripts are untested |
+| ~~Medium~~ **FIXED** | `BE-03-2` | ~~Every released bar costs a full-window database read~~ — the window is cached in Redis under the TTL that was already configured for it |
+| ~~Medium~~ **FIXED** | `BE-03-3` | ~~NFR-03 is listed under Sprint 03 and is not implemented~~ — re-dated to Sprint 04, where fills first exist |
+| ~~Low~~ **FIXED** | `BE-03-4` | ~~`pkg/cache`'s lease scripts are untested~~ — eight tests against a real Redis, covering renewal, expiry handover and release-by-non-holder |
 | Low | `FE-03-2` | Chart and drawing *components* are untested; only their pure kernels are covered |
 
 ## What holds up

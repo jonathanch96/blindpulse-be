@@ -72,6 +72,7 @@ func main() {
 	}
 	feedService := feeddomain.NewService(feeddomain.Dependencies{
 		Repo: feedsdb.New(db), Bars: barsdb.New(db), Instruments: instrumentsdb.New(db),
+		Windows: barsdb.NewRedisWindowCache(redis, cfg.Redis.BarWindowTTL),
 	})
 	sessionService := sessiondomain.NewService(sessiondomain.Dependencies{
 		Repo:     sessionsdb.New(db),
