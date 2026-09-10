@@ -40,7 +40,7 @@ the browser enforces is a rule a `curl` command ignores.
 | FR-AUTH-01 | Email + password registration and sign-in, Argon2id hashing | BOTH | 01 | DONE |
 | FR-AUTH-02 | Rotating refresh tokens, short-lived HS256 access tokens | BOTH | 01 | DONE |
 | FR-AUTH-03 | Google OAuth sign-in | BOTH | 01 | DONE |
-| FR-AUTH-04 | Profile read/update and password change | BOTH | 01 | DONE |
+| FR-AUTH-04 | Profile read/update and password change | BOTH | 01 | PARTIAL — API and BFF routes done; the account settings screen is not built |
 | FR-AUTH-05 | TradingView SSO | BOTH | 07 | PLANNED |
 | FR-AUTH-06 | Enterprise SAML 2.0 / Okta for prop desks and academies | BOTH | 07 | PLANNED |
 | FR-AUTH-07 | GitHub and Apple OAuth | BOTH | 07 | PLANNED |
@@ -54,9 +54,9 @@ the browser enforces is a rule a `curl` command ignores.
 | FR-FEED-02 | Randomized slicing across 1,200+ cycles spanning 2008–2025 | BE | 02 | PARTIAL — builder and selection done; the 1,200-cycle archive is a data-loading exercise, not code |
 | FR-FEED-03 | Price normalization (scale + offset) so price levels cannot identify the instrument | BE | 02 | DONE |
 | FR-FEED-04 | Synthetic alias (`Asset #842 [FX/Crypto Masked]`) in place of the ticker | BE | 02 | DONE |
-| FR-FEED-05 | Relative tick offsets (`T-140`, `T-0`) in place of calendar dates | BOTH | 02 | PLANNED |
-| FR-FEED-06 | Feed catalogue exposing alias, asset-class hint, difficulty and bar count — and nothing else | BOTH | 02 | BE DONE, FE pending |
-| FR-FEED-07 | "Randomize new starting point" picks an unseen feed for the trader | BOTH | 02 | BE DONE, FE pending |
+| FR-FEED-05 | Relative tick offsets (`T-140`, `T-0`) in place of calendar dates | BOTH | 02 | DONE |
+| FR-FEED-06 | Feed catalogue exposing alias, asset-class hint, difficulty and bar count — and nothing else | BOTH | 02 | DONE |
+| FR-FEED-07 | "Randomize new starting point" picks an unseen feed for the trader | BOTH | 02 | DONE |
 
 ### 2.3 Replay engine — `FR-REPLAY` (PRD §3.1)
 
