@@ -15,6 +15,7 @@ import (
 	accountcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/account"
 	authcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/auth"
 	feedcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/feed"
+	sessioncontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/session"
 	usercontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/user"
 	appdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db"
 	ledgerdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/account_ledger_entries"
@@ -24,10 +25,13 @@ import (
 	barsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/market_bars"
 	outboxdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/outbox_events"
 	refreshtokens "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/refresh_tokens"
+	sessionsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/replay_sessions"
 	users "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/users"
 	accountdomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/account"
 	feeddomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/feed"
+	sessiondomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/session"
 	userdomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/user"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -43,6 +47,7 @@ type Service struct {
 	users    usercontroller.Controller
 	accounts accountcontroller.Controller
 	feeds    feedcontroller.Controller
+	sessions sessioncontroller.Controller
 	issuer   *appjwt.Issuer
 }
 
@@ -75,11 +80,25 @@ func NewService(deps Dependencies) *Service {
 		Bars:        barsdb.New(deps.DB),
 		Instruments: instrumentRepo,
 	})
+	sessionService := sessiondomain.NewService(sessiondomain.Dependencies{
+		Repo:  sessionsdb.New(deps.DB),
+		State: sessionsdb.NewRedisStateStore(deps.Cache, deps.Cfg.Redis.SessionTTL),
+		Feeds: feedService,
+		// The session domain reaches accounts through a narrow reader rather than the whole
+		// account service: it only needs to know the account exists, is the caller's, and is live.
+		Accounts:          sessiondomain.NewAccountReader(accountsdb.New(deps.DB)),
+		Outbox:            outboxdb.New(deps.DB),
+		Topic:             deps.Cfg.Kafka.Topic,
+		MinSpeed:          decimal.NewFromFloat(deps.Cfg.Replay.MinSpeed),
+		MaxSpeed:          decimal.NewFromFloat(deps.Cfg.Replay.MaxSpeed),
+		MaxBarsPerRequest: deps.Cfg.Replay.BarWindowSize,
+	})
 	return &Service{
 		auth:     authcontroller.NewController(userService),
 		users:    usercontroller.NewController(userService),
 		accounts: accountcontroller.NewController(accountService),
 		feeds:    feedcontroller.NewController(feedService, instrumentRepo),
+		sessions: sessioncontroller.NewController(sessionService, feedService),
 		issuer:   issuer,
 	}
 }
@@ -92,6 +111,7 @@ func (s *Service) RegisterRoutes(group *gin.RouterGroup) {
 	s.users.RegisterRoutes(protected)
 	s.accounts.RegisterRoutes(protected)
 	s.feeds.RegisterRoutes(protected)
+	s.sessions.RegisterRoutes(protected)
 }
 
 // googleVerifierAdapter adapts pkg/oauth/google's Verifier (which returns its own Claims type) to

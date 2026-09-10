@@ -5,6 +5,24 @@
 **PRD:** §3.1, §6.1, §6.3
 **Depends on:** Sprint 02 · **Blocks:** Sprints 04, 05, 06
 
+## Delivery slices
+
+This sprint is too large to land in one change, so it ships in six slices. Each one is
+independently reviewable and leaves the system working; nothing here is a half-built branch
+waiting on the next slice.
+
+| Slice | Scope | Repo | Status |
+|---|---|---|---|
+| **03A** | Session lifecycle and cursor authority — create, get, step, seek, speed, pause, close; bars bounded by the cursor; state in Redis with a PostgreSQL checkpoint | BE | **DONE** |
+| **03B** | Multi-timeframe resolution over one cursor, including the forming-bar rule | BE | Planned |
+| **03C** | Session wiring in the UI — start from a feed, transport controls, cursor readout, progress | FE | Planned |
+| **03D** | Chart canvas at 60 FPS with EMAs, RSI and scale modes | FE | Planned |
+| **03E** | Websocket streaming, Redis pub/sub fan-out, reconnect and backpressure | BE + FE | Planned |
+| **03F** | Drawing tools — fibonacci, trendlines, zones | FE | Planned |
+
+03A is the foundation the rest sit on: once the cursor is server-authoritative and provably
+un-peekable, every later slice is presentation.
+
 ## Goal
 
 Make time move, and make the server the only thing that decides how far it has moved (BR-02). This

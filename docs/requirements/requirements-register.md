@@ -20,7 +20,7 @@ the browser enforces is a rule a `curl` command ignores.
 | ID | Rule | PRD | Owner | Sprint | Status |
 |---|---|---|---|---|---|
 | BR-01 | The instrument, real dates and macro context of an active session are never disclosed before an explicit reveal | §1.2, §3.1 | BE | 02 | DONE |
-| BR-02 | The replay cursor is server-authoritative; a client cannot obtain a bar past it | §3.1 | BE | 03 | PLANNED |
+| BR-02 | The replay cursor is server-authoritative; a client cannot obtain a bar past it | §3.1 | BE | 03A | DONE |
 | BR-03 | No entry order is accepted without a hard stop loss | §3.3 | BE | 04 | PLANNED |
 | BR-04 | An order below the account's minimum R:R is rejected, never silently resized | §3.3 | BE | 04 | PLANNED |
 | BR-05 | Breaching the account's max daily drawdown halts trading for the session | §3.3 | BE | 04 | PLANNED |
@@ -29,7 +29,7 @@ the browser enforces is a rule a `curl` command ignores.
 | BR-08 | A session may be revealed exactly once, and only after it is closed | §3.4 | BE | 05 | PLANNED |
 | BR-09 | A rejected order is recorded, not discarded — the discipline index needs the attempts | §3.4 | BE | 04 | PLANNED |
 | BR-10 | Replay is deterministic: same feed and seed produce identical fills | §6.3 | BE | 03 | PLANNED |
-| BR-11 | Exactly one live iteration per account tree, and one open session per account | §3.5 | BE | 01 / 03 | 01 DONE |
+| BR-11 | Exactly one live iteration per account tree, and one open session per account | §3.5 | BE | 01 / 03A | DONE |
 
 ## 2. Functional requirements (FR)
 
@@ -62,13 +62,13 @@ the browser enforces is a rule a `curl` command ignores.
 
 | ID | Requirement | Owner | Sprint | Status |
 |---|---|---|---|---|
-| FR-REPLAY-01 | Create a session binding an account to a feed with a deterministic seed | BE | 03 | PLANNED |
-| FR-REPLAY-02 | Step forward and backward one bar (`Spacebar`) | BOTH | 03 | PLANNED |
-| FR-REPLAY-03 | Continuous playback at 0.5x / 1x / 3x / 5x / 10x | BOTH | 03 | PLANNED |
+| FR-REPLAY-01 | Create a session binding an account to a feed with a deterministic seed | BE | 03A | DONE |
+| FR-REPLAY-02 | Step forward and backward one bar (`Spacebar`) | BOTH | 03A/03C | BE DONE |
+| FR-REPLAY-03 | Continuous playback at 0.5x / 1x / 3x / 5x / 10x | BOTH | 03A/03E | BE speed control DONE; streaming in 03E |
 | FR-REPLAY-04 | Progress indicator (`142 / 500 bars scanned`) | FE | 03 | PLANNED |
 | FR-REPLAY-05 | Websocket streams frames at playback speed, resumable from the cursor | BOTH | 03 | PLANNED |
 | FR-REPLAY-06 | Multi-timeframe toggle (1m / 5m / 15m / 1h / 4h / 1D) over the same cursor | BOTH | 03 | PLANNED |
-| FR-REPLAY-07 | Pause, seek, close; idle sessions time out | BOTH | 03 | PLANNED |
+| FR-REPLAY-07 | Pause, seek, close; idle sessions time out | BOTH | 03A | BE DONE except the idle sweeper |
 | FR-REPLAY-08 | Simulated feed latency surfaced in the UI | BOTH | 03 | PLANNED |
 
 ### 2.4 Technical analysis ribbon — `FR-TA` (PRD §3.2)
