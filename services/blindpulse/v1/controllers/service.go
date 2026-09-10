@@ -46,12 +46,14 @@ type Dependencies struct {
 }
 
 type Service struct {
-	auth     authcontroller.Controller
-	users    usercontroller.Controller
-	accounts accountcontroller.Controller
-	feeds    feedcontroller.Controller
-	sessions sessioncontroller.Controller
-	issuer   *appjwt.Issuer
+	throttleByAddress *middleware.RateLimiter
+	throttleByEmail   *middleware.RateLimiter
+	auth              authcontroller.Controller
+	users             usercontroller.Controller
+	accounts          accountcontroller.Controller
+	feeds             feedcontroller.Controller
+	sessions          sessioncontroller.Controller
+	issuer            *appjwt.Issuer
 }
 
 func NewService(deps Dependencies) *Service {
@@ -118,18 +120,25 @@ func NewService(deps Dependencies) *Service {
 		Holder: instanceID(),
 	})
 	return &Service{
-		auth:     authcontroller.NewController(userService),
-		users:    usercontroller.NewController(userService),
-		accounts: accountcontroller.NewController(accountService),
-		feeds:    feedcontroller.NewController(feedService, instrumentRepo),
-		sessions: sessioncontroller.NewController(sessionService, feedService, deps.Cfg.CORS.AllowedOrigins),
-		issuer:   issuer,
+		throttleByAddress: middleware.NewRateLimiter(deps.Cfg.Auth.AddressAttempts, deps.Cfg.Auth.Window),
+		throttleByEmail:   middleware.NewRateLimiter(deps.Cfg.Auth.EmailAttempts, deps.Cfg.Auth.Window),
+		auth:              authcontroller.NewController(userService),
+		users:             usercontroller.NewController(userService),
+		accounts:          accountcontroller.NewController(accountService),
+		feeds:             feedcontroller.NewController(feedService, instrumentRepo),
+		sessions:          sessioncontroller.NewController(sessionService, feedService, deps.Cfg.CORS.AllowedOrigins),
+		issuer:            issuer,
 	}
 }
 
 func (s *Service) RegisterRoutes(group *gin.RouterGroup) {
 	group.GET("/ping", s.Ping)
-	s.auth.RegisterRoutes(group)
+	// The auth group is the only unauthenticated write surface, so it is the only one that can be
+	// hammered for free. Argon2id makes each attempt expensive for *us*, which turns an unthrottled
+	// login into both a credential-stuffing target and the cheapest denial of service available.
+	authGroup := group.Group("")
+	authGroup.Use(middleware.ThrottleAuth(s.throttleByAddress, s.throttleByEmail)...)
+	s.auth.RegisterRoutes(authGroup)
 	protected := group.Group("")
 	protected.Use(middleware.Authenticate(s.issuer))
 	s.users.RegisterRoutes(protected)

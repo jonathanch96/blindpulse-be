@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -119,6 +120,41 @@ func (a *adapterGormPostgresql) UpdateStatus(ctx context.Context, id uuid.UUID, 
 		return apperror.New("CONCURRENT_MODIFICATION")
 	}
 	return nil
+}
+
+// AbandonIdle claims and flips idle sessions in one statement.
+//
+// One statement rather than a read followed by a write, because two worker replicas sweeping at the
+// same moment would otherwise both select the same rows and both emit an abandonment event for
+// each. `UPDATE ... WHERE status IN (...)` lets PostgreSQL settle it: the second writer sees rows
+// that no longer match its predicate and claims nothing.
+//
+// The subquery with LIMIT bounds one sweep so a backlog after an outage is drained across ticks
+// rather than taken in one long-held lock. It is ordered by last_active_at so the most stale
+// sessions — the ones most likely to be holding an account hostage — go first.
+func (a *adapterGormPostgresql) AbandonIdle(ctx context.Context, cutoff time.Time, limit int) ([]domainsession.Session, error) {
+	if limit < 1 {
+		limit = 100
+	}
+	var claimed []ReplaySession
+	result := appdb.FromContext(ctx, a.db).WithContext(ctx).Raw(`
+		UPDATE blindpulse.replay_sessions
+		   SET status = ?, closed_at = now(), updated_at = now(), version = version + 1
+		 WHERE id IN (
+		       SELECT id FROM blindpulse.replay_sessions
+		        WHERE status IN (?, ?) AND last_active_at < ?
+		        ORDER BY last_active_at
+		        LIMIT ?
+		       )
+		RETURNING *`,
+		string(domainsession.StatusAbandoned),
+		string(domainsession.StatusOpen), string(domainsession.StatusPaused),
+		cutoff, limit,
+	).Scan(&claimed)
+	if result.Error != nil {
+		return nil, apperror.Wrap(result.Error, "INTERNAL_ERROR")
+	}
+	return toDomains(claimed), nil
 }
 
 // isUniqueViolation matches on the SQLSTATE rather than the driver's error type, so it keeps

@@ -1,5 +1,8 @@
 # Review — Sprint 01: Identity, accounts and reset trees
 
+> **Update:** `BE-01-1` was fixed after this review. The finding is kept as a record of what was
+> wrong and why it mattered; the table below marks it FIXED.
+
 **Reviewed:** `services/blindpulse/v1/domain/{user,account}`, `pkg/{hash,jwt,middleware}`,
 `migrations/000001`–`000004`, and the frontend's auth and account features.
 **Against:** `docs/requirements/sprint-01-identity-accounts.md`, register rows FR-AUTH-01..04,
@@ -17,7 +20,7 @@ was written, tested, and never wired to a route.
 
 | | ID | Finding |
 |---|---|---|
-| **High** | `BE-01-1` | `/auth/login` and `/auth/register` have no rate limiting; the limiter exists but is unreachable |
+| ~~High~~ **FIXED** | `BE-01-1` | ~~`/auth/login` and `/auth/register` have no rate limiting~~ — two independent budgets (per address, per email) now wired onto the auth group, with a test over the real route table |
 | Medium | `BE-01-2` | `cache.Incr` — the distributed limiter primitive — is dead code |
 | Low | `BE-01-3` | `FR-AUTH-04` is PARTIAL and has been since Sprint 01; no account settings screen |
 | Low | `BE-01-4` | Controller packages have no tests; auth is exercised only through the domain |

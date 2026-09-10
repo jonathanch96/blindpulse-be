@@ -45,6 +45,10 @@ type Service interface {
 	Stream(ctx context.Context, userID, sessionID uuid.UUID) (<-chan domainsession.Frame, func(), error)
 	// Snapshot builds the sync frame: where the server says this session is, right now.
 	Snapshot(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Frame, error)
+	// SweepIdle abandons sessions nobody has touched for idleFor and returns how many. It is the
+	// escape hatch from "one live session per account": without it, closing a browser tab leaves
+	// an account unable to start another session, forever.
+	SweepIdle(ctx context.Context, idleFor time.Duration, limit int) (int, error)
 }
 
 type Repository interface {
@@ -55,6 +59,10 @@ type Repository interface {
 	// UpdateCursor persists a cursor move under optimistic locking.
 	UpdateCursor(context.Context, *domainsession.Session) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domainsession.Status, version int) error
+	// AbandonIdle flips every live session untouched since the cutoff to abandoned and returns
+	// what it flipped. It claims rows in one statement rather than reading then writing, so two
+	// worker replicas sweeping at once cannot both abandon the same session.
+	AbandonIdle(ctx context.Context, cutoff time.Time, limit int) ([]domainsession.Session, error)
 }
 
 // StateStore is the Redis-backed hot path. Every method is allowed to be a no-op: the store is a

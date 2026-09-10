@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jblabs/blindpulse-be/pkg/apperror"
 	domainsession "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/session"
+	"github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/event"
 	"github.com/shopspring/decimal"
 )
 
@@ -285,4 +286,51 @@ func (s *service) frameFor(ctx context.Context, entity *domainsession.Session, k
 	tail := bars[len(bars)-1]
 	frame.Bar = &tail
 	return frame
+}
+
+// defaultSweepLimit bounds one sweep. A backlog is drained across ticks rather than in one
+// statement, so a long outage does not turn the first sweep after it into a table-wide lock.
+const defaultSweepLimit = 200
+
+// SweepIdle abandons sessions nobody has touched for idleFor.
+//
+// This exists because "one live session per account" is enforced in the database
+// (`replay_sessions_single_open`), which means an abandoned session is not untidy — it is a
+// lockout. A trader who closes the browser mid-replay has an account that cannot start another
+// session until that one ends, and nothing in the product tells them why.
+//
+// It is deliberately in the domain rather than in the worker: what "idle" means, and what happens
+// to the session, are product decisions. The worker only supplies a clock.
+func (s *service) SweepIdle(ctx context.Context, idleFor time.Duration, limit int) (int, error) {
+	if idleFor <= 0 {
+		return 0, apperror.Newf("VALIDATION_FAILED", "idle timeout must be positive")
+	}
+	if limit < 1 {
+		limit = defaultSweepLimit
+	}
+	cutoff := s.deps.Clock().Add(-idleFor)
+	abandoned, err := s.deps.Repo.AbandonIdle(ctx, cutoff, limit)
+	if err != nil {
+		return 0, err
+	}
+	for index := range abandoned {
+		entity := &abandoned[index]
+		// The cached cursor goes with it. Leaving it behind would let a reconnecting socket read a
+		// live-looking state for a session the database has already ended.
+		_ = s.deps.State.Clear(ctx, entity.ID)
+		// Any socket still attached is told, so a terminal left open overnight stops waiting for
+		// bars that are never coming.
+		s.publish(ctx, entity, domainsession.FrameState)
+		if err := s.emit(ctx, entity.ID, event.TypeSessionAbandoned, event.TopicSessions, map[string]any{
+			"session_id": entity.ID, "user_id": entity.UserID, "account_id": entity.AccountID,
+			"cursor_index": entity.CursorIndex, "revealed_index": entity.RevealedIndex,
+			"last_active_at": entity.LastActiveAt, "idle_for_seconds": int(idleFor.Seconds()),
+		}); err != nil {
+			// One session failing to emit must not strand the rest of the batch — they are already
+			// abandoned in the database, and the sweep is idempotent.
+			slog.WarnContext(ctx, "abandoned session event not written",
+				"session_id", entity.ID, "error", err)
+		}
+	}
+	return len(abandoned), nil
 }

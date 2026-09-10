@@ -11,15 +11,24 @@ import (
 	"github.com/jblabs/blindpulse-be/pkg/response"
 )
 
-// RateLimiter is a small in-memory token-bucket limiter for the v1 API. Redis replaces this in
-// Sprint 6; keeping the key function outside the limiter lets one instance count users and another
-// count trips without coupling this package to either domain.
+// RateLimiter is a small in-memory token-bucket limiter for the v1 API. Keeping the key function
+// outside the limiter lets one instance count IP addresses and another count email addresses
+// without coupling this package to either.
+//
+// It is per-process, so on N replicas the effective limit is N × the configured one. That is the
+// right trade for the front door — a limit that is 3× too generous still turns unlimited credential
+// stuffing into a bounded cost — but it is a ceiling, not a guarantee. `pkg/cache.Incr` exists to
+// make it distributed and has no caller yet (review finding BE-01-2).
 type RateLimiter struct {
 	mu     sync.Mutex
 	limit  int
 	window time.Duration
 	now    func() time.Time
 	items  map[string]tokenBucket
+	// lastSweep bounds the map. Without it, a limiter keyed by client IP grows one entry per
+	// attacking address — so the memory cost of being attacked would scale with the attack, which
+	// is the opposite of what a rate limiter is for.
+	lastSweep time.Time
 }
 
 type tokenBucket struct {
@@ -31,10 +40,28 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	return &RateLimiter{limit: limit, window: window, now: time.Now, items: make(map[string]tokenBucket)}
 }
 
+// sweepEvery is how often idle buckets are evicted. A bucket is droppable once it has refilled to
+// full, because a full bucket and no bucket are the same thing to the next caller.
+const sweepEvery = time.Minute
+
+// sweep must be called with the lock held.
+func (l *RateLimiter) sweep(now time.Time) {
+	if now.Sub(l.lastSweep) < sweepEvery {
+		return
+	}
+	l.lastSweep = now
+	for key, bucket := range l.items {
+		if now.Sub(bucket.updated) >= l.window {
+			delete(l.items, key)
+		}
+	}
+}
+
 func (l *RateLimiter) allow(key string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
+	l.sweep(now)
 	bucket, exists := l.items[key]
 	if !exists {
 		l.items[key] = tokenBucket{updated: now, tokens: float64(l.limit - 1)}

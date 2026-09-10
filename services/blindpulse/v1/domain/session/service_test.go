@@ -90,6 +90,28 @@ func (r *sessionRepoStub) UpdateCursor(_ context.Context, entity *domainsession.
 	return nil
 }
 
+// AbandonIdle mirrors the adapter's single-statement claim: it selects and flips under one lock,
+// so a second caller sees rows that no longer match and claims nothing.
+func (r *sessionRepoStub) AbandonIdle(_ context.Context, cutoff time.Time, limit int) ([]domainsession.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	claimed := make([]domainsession.Session, 0)
+	for _, entity := range r.rows {
+		if len(claimed) >= limit {
+			break
+		}
+		if !entity.Status.Live() || !entity.LastActiveAt.Before(cutoff) {
+			continue
+		}
+		updated := *entity
+		updated.Status = domainsession.StatusAbandoned
+		updated.Version++
+		r.rows[entity.ID] = &updated
+		claimed = append(claimed, updated)
+	}
+	return claimed, nil
+}
+
 func (r *sessionRepoStub) UpdateStatus(_ context.Context, id uuid.UUID, status domainsession.Status, version int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

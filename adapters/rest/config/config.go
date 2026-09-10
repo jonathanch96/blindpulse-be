@@ -21,6 +21,19 @@ type Config struct {
 	Redis   RedisConfig
 	Kafka   KafkaConfig
 	Replay  ReplayConfig
+	Auth    AuthConfig
+}
+
+// AuthConfig throttles the front door. Two independent budgets: one per client address, one per
+// email being attempted. A composite key would give every (address, email) pair its own budget and
+// stop neither credential stuffing nor password spraying.
+//
+// The defaults are deliberately generous enough that a person fat-fingering their password several
+// times is unaffected, and tight enough that unlimited automated attempts are not.
+type AuthConfig struct {
+	AddressAttempts int           `envconfig:"AUTH_RATE_LIMIT_PER_ADDRESS" default:"30"`
+	EmailAttempts   int           `envconfig:"AUTH_RATE_LIMIT_PER_EMAIL" default:"10"`
+	Window          time.Duration `envconfig:"AUTH_RATE_LIMIT_WINDOW" default:"15m"`
 }
 
 type AppConfig struct {
@@ -122,6 +135,9 @@ type ReplayConfig struct {
 	// browser to make one connection, short enough that a ticket in a log is already dead.
 	StreamTicketTTL    time.Duration `envconfig:"REPLAY_STREAM_TICKET_TTL" default:"30s"`
 	SessionIdleTimeout time.Duration `envconfig:"REPLAY_SESSION_IDLE_TIMEOUT" default:"30m"`
+	// How often the worker looks for idle sessions. Deliberately much coarser than the timeout:
+	// nothing depends on abandoning a session promptly, only on abandoning it eventually.
+	SessionSweepInterval time.Duration `envconfig:"REPLAY_SESSION_SWEEP_INTERVAL" default:"5m"`
 }
 
 func Load() (*Config, error) {
@@ -173,6 +189,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Kafka.TopicPrefix == "" || strings.ContainsAny(c.Kafka.TopicPrefix, " ,") {
 		return fmt.Errorf("KAFKA_TOPIC_PREFIX is invalid")
+	}
+	if c.Auth.AddressAttempts < 1 || c.Auth.EmailAttempts < 1 || c.Auth.Window <= 0 {
+		return fmt.Errorf("AUTH_RATE_LIMIT_* must be positive")
 	}
 	if c.Replay.MinSpeed <= 0 || c.Replay.MaxSpeed < c.Replay.MinSpeed {
 		return fmt.Errorf("REPLAY_MIN_SPEED and REPLAY_MAX_SPEED are invalid")

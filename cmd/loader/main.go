@@ -32,6 +32,10 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// maxReportedProblems bounds the error message. A file with every row out of order would otherwise
+// print one line per row, and the first few are enough to see what is wrong.
+const maxReportedProblems = 10
+
 func main() {
 	var (
 		symbol     = flag.String("symbol", "", "instrument symbol, e.g. EURUSD")
@@ -164,6 +168,22 @@ func ingest(ctx context.Context, repo feeddomain.BarRepository, instrument *mark
 		return fmt.Errorf("%s produced no valid bars (%d rejected)", path, rejected)
 	}
 
+	// Per-row validation catches a malformed bar; this catches a malformed *series*. Duplicates and
+	// out-of-order rows used to load silently, and Aggregate assumes sorted input — so an unsorted
+	// CSV produced quietly wrong higher timeframes, a 1h candle whose open came from the wrong
+	// minute (review finding BE-02-2).
+	//
+	// The whole file is refused rather than the offending rows dropped: a series that is out of
+	// order is not a series with a few bad rows in it, it is a file we do not understand.
+	if problems := feeddomain.ValidateSeries(parsed); len(problems) > 0 {
+		shown := problems
+		if len(shown) > maxReportedProblems {
+			shown = shown[:maxReportedProblems]
+		}
+		return fmt.Errorf("%s is not a valid series (%d problems, first %d shown):\n  %s",
+			path, len(problems), len(shown), strings.Join(shown, "\n  "))
+	}
+
 	inserted, err := repo.Insert(ctx, parsed)
 	if err != nil {
 		return err
@@ -208,16 +228,65 @@ func parseRow(instrumentID uuid.UUID, record []string) (market.Bar, error) {
 	}, nil
 }
 
+// The range a market bar's timestamp may plausibly fall in. Anything outside it is a unit mistake
+// or a column-order mistake, and both are better refused than stored.
+var (
+	earliestPlausible = time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)
+	latestPlausible   = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+)
+
+// parseTime reads a bar timestamp, detecting the unit of a bare integer rather than assuming one.
+//
+// The previous version treated every integer as unix *seconds*. A millisecond epoch —
+// 1700000000000, which is November 2023 and what Binance emits everywhere — parsed successfully as
+// the year 55,840. There was no error and nothing downstream noticed, so an entire load of the best
+// free crypto data available would have looked like it worked (review finding BE-02-1).
+//
+// Detection is by magnitude, and anything that lands outside a plausible window is **refused**
+// rather than guessed at: a value that is neither sensible seconds nor sensible milliseconds is a
+// mistake somewhere else in the file, and picking an interpretation would bury it.
 func parseTime(raw string) (time.Time, error) {
 	trimmed := strings.TrimSpace(raw)
-	if seconds, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
-		return time.Unix(seconds, 0).UTC(), nil
+	if epoch, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		parsed, err := fromEpoch(epoch)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return parsed, nil
 	}
 	parsed, err := time.Parse(time.RFC3339, trimmed)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("timestamp %q is neither unix seconds nor RFC3339", trimmed)
+		return time.Time{}, fmt.Errorf("timestamp %q is neither a unix epoch nor RFC3339", trimmed)
+	}
+	if !plausible(parsed) {
+		return time.Time{}, fmt.Errorf("timestamp %q is outside %d-%d", trimmed, earliestPlausible.Year(), latestPlausible.Year())
 	}
 	return parsed.UTC(), nil
+}
+
+// fromEpoch tries each unit in turn and takes the one that lands in a plausible year. The units are
+// orders of magnitude apart, so at most one can ever match — there is no ambiguity to resolve, only
+// a unit to identify.
+func fromEpoch(epoch int64) (time.Time, error) {
+	for _, candidate := range []struct {
+		unit string
+		at   time.Time
+	}{
+		{"seconds", time.Unix(epoch, 0).UTC()},
+		{"milliseconds", time.UnixMilli(epoch).UTC()},
+		{"microseconds", time.UnixMicro(epoch).UTC()},
+		{"nanoseconds", time.Unix(0, epoch).UTC()},
+	} {
+		if plausible(candidate.at) {
+			return candidate.at, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf(
+		"epoch %d is not a plausible timestamp in seconds, milliseconds, microseconds or nanoseconds", epoch)
+}
+
+func plausible(at time.Time) bool {
+	return at.After(earliestPlausible) && at.Before(latestPlausible)
 }
 
 func looksNumeric(value string) bool {

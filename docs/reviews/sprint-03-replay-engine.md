@@ -1,5 +1,9 @@
 # Review — Sprint 03: Replay engine and terminal
 
+> **Update:** `BE-03-1` was fixed after this review. The sweeper abandoned 23 leftover sessions on
+> its first tick against the development database — the lockout in evidence — and the affected
+> account then started a new session successfully.
+
 **Reviewed:** `services/blindpulse/v1/domain/session`, `db/blindpulse/replay_sessions`,
 `controllers/session`, `pkg/cache`, and the frontend's `chart`, `drawing` and `session` features.
 **Against:** `docs/requirements/sprint-03-replay-engine.md` (backend),
@@ -19,7 +23,7 @@ is a state the system can enter and cannot leave.
 
 | | ID | Finding |
 |---|---|---|
-| **High** | `BE-03-1` | An abandoned session locks its account out of new sessions, permanently |
+| ~~High~~ **FIXED** | `BE-03-1` | ~~An abandoned session locks its account out permanently~~ — the worker now sweeps idle sessions, using the index migration 000011 built for it |
 | **High** | `FE-03-1` | NFR-04's stated proof is a Playwright project with no spec files |
 | Medium | `BE-03-2` | Every released bar costs a full-window database read; the sprint doc says it should cost none |
 | Medium | `BE-03-3` | NFR-03 (deterministic session hashes) is listed under Sprint 03 and is not implemented |

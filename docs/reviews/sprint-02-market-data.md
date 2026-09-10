@@ -1,5 +1,9 @@
 # Review — Sprint 02: Market data and blinded feeds
 
+> **Update:** `BE-02-1` and `BE-02-2` were fixed after this review, and verified end to end — a
+> Binance-shaped millisecond CSV now lands in November 2023 rather than the year 55,840, and a
+> shuffled one is refused with zero rows written. Sprint 08 §08.1 no longer blocks on them.
+
 **Reviewed:** `services/blindpulse/v1/domain/feed`, `entities/domain/feed`, `entities/response/feed`,
 `cmd/loader`, `pkg/stats`, and the frontend's feed catalogue.
 **Against:** `docs/requirements/sprint-02-market-data-feeds.md`, register rows FR-FEED-01..07,
@@ -18,8 +22,8 @@ ingest findings below bite at volume, which is exactly what **Sprint 08** is abo
 
 | | ID | Finding |
 |---|---|---|
-| **High** | `BE-02-1` | Millisecond epochs parse as seconds — silent corruption, from the source we most want to use |
-| **High** | `BE-02-2` | `ValidateSeries` is never called; the sprint doc specifies validation the loader does not do |
+| ~~High~~ **FIXED** | `BE-02-1` | ~~Millisecond epochs parse as seconds~~ — the unit is now detected by magnitude and an implausible value is refused rather than guessed at |
+| ~~High~~ **FIXED** | `BE-02-2` | ~~`ValidateSeries` is never called~~ — the loader now refuses the whole file on any structural problem, before insert |
 | Medium | `BE-02-3` | Instrument tick size and quote currency are hardcoded for every asset class |
 | Medium | `BE-02-4` | `pkg/stats` — the kernel that decides feed difficulty — has no tests |
 | Low | `BE-02-5` | The sprint doc still reads `Status: PLANNED` |

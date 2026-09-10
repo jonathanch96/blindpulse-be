@@ -30,14 +30,17 @@ const (
 	TypeSessionStarted  = "session.started"
 	TypeSessionAdvanced = "session.advanced"
 	TypeSessionClosed   = "session.closed"
-	TypeOrderPlaced     = "order.placed"
-	TypeOrderRejected   = "order.rejected"
-	TypeOrderFilled     = "order.filled"
-	TypeTradeOpened     = "trade.opened"
-	TypeTradeClosed     = "trade.closed"
-	TypeGateBreached    = "risk.gate_breached"
-	TypeJournalWritten  = "journal.written"
-	TypeSessionRevealed = "session.revealed"
+	// TypeSessionAbandoned is emitted by the idle sweeper, not by the trader. A session that ends
+	// this way has no reveal and no post-mortem — it was walked away from.
+	TypeSessionAbandoned = "session.abandoned"
+	TypeOrderPlaced      = "order.placed"
+	TypeOrderRejected    = "order.rejected"
+	TypeOrderFilled      = "order.filled"
+	TypeTradeOpened      = "trade.opened"
+	TypeTradeClosed      = "trade.closed"
+	TypeGateBreached     = "risk.gate_breached"
+	TypeJournalWritten   = "journal.written"
+	TypeSessionRevealed  = "session.revealed"
 )
 
 const (
