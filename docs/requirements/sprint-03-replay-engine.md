@@ -15,8 +15,8 @@ waiting on the next slice.
 |---|---|---|---|
 | **03A** | Session lifecycle and cursor authority — create, get, step, seek, speed, pause, close; bars bounded by the cursor; state in Redis with a PostgreSQL checkpoint | BE | **DONE** |
 | **03B** | Multi-timeframe resolution over one cursor, including the forming-bar rule | BE | **DONE** |
-| **03C** | Session wiring in the UI — start from a feed, transport controls, cursor readout, progress | FE | Planned |
-| **03D** | Chart canvas at 60 FPS with EMAs, RSI and scale modes | FE | Planned |
+| **03C** | Session wiring in the UI — start from a feed, transport controls, cursor readout, progress | FE | **DONE** |
+| **03D** | Chart canvas at 60 FPS with EMAs, RSI and scale modes | FE | **DONE** |
 | **03E** | Websocket streaming, Redis pub/sub fan-out, reconnect and backpressure | BE + FE | Planned |
 | **03F** | Drawing tools — fibonacci, trendlines, zones | FE | Planned |
 

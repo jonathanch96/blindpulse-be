@@ -75,16 +75,16 @@ the browser enforces is a rule a `curl` command ignores.
 
 | ID | Requirement | Owner | Sprint | Status |
 |---|---|---|---|---|
-| FR-TA-01 | Candlestick canvas holding 60 FPS at 10x with overlays | FE | 03 | PLANNED |
+| FR-TA-01 | Candlestick canvas holding 60 FPS at 10x with overlays | FE | 03D | **DONE** — measured 60.3 FPS / 0 dropped frames at 10x with EMAs + RSI |
 | FR-TA-02 | Trendline suite: freehand, horizontal, ray, extended, vertical | FE | 03 | PLANNED |
 | FR-TA-03 | Fibonacci retracement (0, .236, .382, .5, .618, .786, 1.0) and trend-based extensions | FE | 03 | PLANNED |
 | FR-TA-04 | Order block / supply-demand boxes with adjustable shading | FE | 03 | PLANNED |
 | FR-TA-05 | Polyline, brush, annotation note | FE | 03 | PLANNED |
 | FR-TA-06 | On-chart interactive long/short brackets showing live target pips, stop risk and R:R | FE | 04 | PLANNED |
-| FR-TA-07 | RSI(14) sub-chart with OB/OS thresholds | FE | 03 | PLANNED |
-| FR-TA-08 | Dual EMAs (20/50/200) and volume profile | FE | 03 | PLANNED |
+| FR-TA-07 | RSI(14) sub-chart with OB/OS thresholds | FE | 03D | **DONE** — Wilder's RSI(14), 30/70 bands, undefined through the warmup rather than faked |
+| FR-TA-08 | Dual EMAs (20/50/200) and volume profile | FE | 03D | PARTIAL — EMA 20/50/200 and the volume pane done; the by-price volume *profile* is not built |
 | FR-TA-09 | MACD momentum histogram | FE | 06 | PLANNED |
-| FR-TA-10 | Scale modes: `LOG`, `AUTO`, `%` | FE | 03 | PLANNED |
+| FR-TA-10 | Scale modes: `LOG`, `AUTO`, `%` | FE | 03D | **DONE** |
 | FR-TA-11 | Drawings persist per session and reload with it | BOTH | 05 | PLANNED |
 
 ### 2.5 Execution and risk — `FR-EXEC` (PRD §3.3)
@@ -170,7 +170,7 @@ the browser enforces is a rule a `curl` command ignores.
 | ID | Requirement | PRD | Owner | Sprint | How it is proven |
 |---|---|---|---|---|---|
 | NFR-01 | Simulated tick latency under 15ms, displayed in the UI | §6.1 | BOTH | 03 | p99 histogram measured at the socket, asserted in the load test |
-| NFR-02 | Candlestick canvas sustains 60 FPS at 10x with overlays | §6.2 | FE | 03 | Frame-drop budget measured under sustained 10x |
+| NFR-02 | Candlestick canvas sustains 60 FPS at 10x with overlays | §6.2 | FE | 03D | **DONE** — measured in-browser at 10x: 60.3 FPS over 182 frames, 0 dropped, gap p99 16.80ms; draw cost 4.4ms p99 per the frontend's `docs/adr/0001-chart-rendering.md` |
 | NFR-03 | Deterministic session hashes over every action and fill | §6.3 | BE | 03 | Property test: same feed + seed ⇒ identical fills and hash |
 | NFR-04 | Full touch gestures on mobile web / PWA | §6.4 | FE | 03 | Playwright mobile project |
 | NFR-05 | Zero hindsight leakage in any pre-reveal payload | §1.2, §3.1 | BE | 02 | **DONE** — payload + struct guards in `entities/response/feed/leak_test.go`, verified non-vacuous |
@@ -187,7 +187,7 @@ the browser enforces is a rule a `curl` command ignores.
 | 00 | Foundation and infrastructure | NFR-06, NFR-08 | DONE |
 | 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE |
 | 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | PLANNED |
-| 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01..04 | IN PROGRESS — 03A/03B/03C done, 03D/03E/03F planned |
+| 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01..04 | IN PROGRESS — 03A/03B/03C/03D done, 03E/03F planned |
 | 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09 | PLANNED |
 | 05 | Journal, drawings and the mystery reveal | FR-JOURNAL-01..06, FR-REVEAL-01..03, FR-TA-11, FR-UI-04/10, BR-08 | PLANNED |
 | 06 | Analytics, discipline index and cross-iteration | FR-ANALYTICS-01..09, FR-REVEAL-04/05, FR-ACCT-06..09, FR-TA-09, FR-UI-06/11 | PLANNED |
