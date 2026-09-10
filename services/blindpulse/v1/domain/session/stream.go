@@ -172,7 +172,14 @@ func (s *service) drive(ctx context.Context, sessionID, userID uuid.UUID) {
 		if !sleep(ctx, s.tickFor(entity.Speed)) {
 			return
 		}
-		if _, err := s.Step(ctx, userID, sessionID, 1); err != nil {
+		// Reload after the sleep. The status read at the top of this iteration is a tick old, and
+		// a pause that arrived during the sleep has to win: a bar released after the trader paused
+		// is a bar they can then read, which is the hindsight pause exists to withhold.
+		entity, err = s.loadLive(ctx, userID, sessionID)
+		if err != nil || entity.Status != domainsession.StatusOpen {
+			continue
+		}
+		if _, err := s.stepLoaded(ctx, entity, 1); err != nil {
 			// BARS_EXHAUSTED is the feed ending, which is a normal way for a replay to finish.
 			if apperror.Is(err, "BARS_EXHAUSTED") || apperror.Is(err, "INVALID_CURSOR") {
 				s.publish(ctx, entity, domainsession.FrameState)

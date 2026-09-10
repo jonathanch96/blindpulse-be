@@ -17,11 +17,74 @@ waiting on the next slice.
 | **03B** | Multi-timeframe resolution over one cursor, including the forming-bar rule | BE | **DONE** |
 | **03C** | Session wiring in the UI — start from a feed, transport controls, cursor readout, progress | FE | **DONE** |
 | **03D** | Chart canvas at 60 FPS with EMAs, RSI and scale modes | FE | **DONE** |
-| **03E** | Websocket streaming, Redis pub/sub fan-out, reconnect and backpressure | BE + FE | Planned |
+| **03E** | Websocket streaming, Redis pub/sub fan-out, reconnect and backpressure | BE + FE | **DONE** |
 | **03F** | Drawing tools — fibonacci, trendlines, zones | FE | Planned |
 
 03A is the foundation the rest sit on: once the cursor is server-authoritative and provably
 un-peekable, every later slice is presentation.
+
+### Slice 03E — delivered
+
+The replay clock moved to the server. A socket subscribes and bars arrive; the client asks for
+nothing during playback.
+
+**Fan-out and coordination**
+- `pkg/cache` gained `Take` (GETDEL), `Hold` and `ReleaseHold`. `Subscribe` now returns a plain
+  string channel, so go-redis stays inside `pkg/cache` rather than leaking into every consumer.
+- Redis pub/sub on `blindpulse:session:{id}:frames` carries frames across replicas, so a reconnect
+  landing on a different instance still receives the stream. With Redis absent, both the bus and
+  the lease fall back to in-process equivalents: no Redis means no fan-out, not no streaming.
+- A short, renewed driver lease elects exactly one replica to advance a given session. Two
+  replicas driving would release bars nobody watched, and a released bar is a readable bar — a
+  hindsight leak rather than a display glitch.
+
+**Authentication.** A browser cannot set an `Authorization` header on a WebSocket handshake, and a
+token in the query string lands in every proxy log on the way. So an authenticated caller trades
+its bearer for a single-use ticket, worth one connection to one session for 30 seconds, redeemed
+with GETDEL. Verified live: a spent ticket, a ticket used against another session, and no ticket
+at all are each refused at the handshake.
+
+**Backpressure** is latest-wins at two points — the bus discards the *oldest* frame when a
+socket's buffer fills, and the socket collapses anything already queued and writes only the
+newest. A trader acts on what is on screen, so the newest frame is the one worth keeping. Skipped
+bars are recoverable because the client sees the jump in bar index and backfills over HTTP; a
+stale frame is not recoverable at all.
+
+**The clock only advances the cursor.** Bar frames come out of `Step`, so a bar released by
+playback and a bar released by the step key travel one path and cannot drift apart. A rewind
+publishes a state frame and never a bar.
+
+**No date on the wire.** The internal frame carries a server instant — that is what the latency is
+measured from — so the wire type is separate and carries `latency_ms` only, guarded by
+`frame_leak_test.go`.
+
+**Frontend.** `useReplayStream` fetches a fresh ticket per attempt, connects, folds frames into the
+query cache, and reconnects with exponential backoff plus full jitter. The bars query key lost its
+revealed-edge segment: under 03C a step invalidated the window and refetched it, which at 10x
+would now be forty round trips a second. The terminal shows the FR-REPLAY-08 latency readout and
+reports the connection honestly — a terminal that looks live while its socket is down would have
+the trader reading a frozen chart as a quiet market.
+
+**Two bugs this slice found and fixed, both caught by testing rather than review:**
+- *One bar leaked past a pause.* The driver read the status, slept a tick, then stepped — so a
+  pause arriving during the sleep was overtaken by the step behind it. One bar is not a rounding
+  error: it is a bar the trader can read after asking not to be shown any more. The status check
+  and the cursor move now happen against one loaded entity. The regression test needed a realistic
+  200ms tick to reproduce it; at the 2ms the other tests use, the window is too small to hit.
+- *A configured `wss://` was silently downgraded to `ws://`*, because the scheme mapping was a
+  blanket "https means wss, everything else means ws". Dropping TLS because of a config format is
+  not a decision that function gets to make.
+
+**Measured end to end** against a live stack: latency 4–6ms at the socket (NFR-01 budget is 15ms),
+bar indices contiguous, zero calendar dates across every frame received, pause stops the clock
+dead, 10x releases ~27 bars/s, and killing the API mid-session flips the terminal to RECONNECTING
+and recovers to a second socket with the session's position intact.
+
+**Known limitation:** the driver reloads the session each tick and re-aggregates the timeframe view
+to build the frame's tail bar. That is one PostgreSQL read per released bar, where 03.3 calls for
+the streaming path never to touch PostgreSQL. Fine at one session per account and a 250ms tick;
+the pre-decoded Redis bar window is the fix when it matters, and it is not this slice.
+
 
 ## Goal
 

@@ -111,6 +111,13 @@ func (s *service) Step(ctx context.Context, userID, sessionID uuid.UUID, count i
 	if err != nil {
 		return nil, err
 	}
+	return s.stepLoaded(ctx, entity, count)
+}
+
+// stepLoaded is Step once the session is in hand. The playback clock needs to check the status and
+// move the cursor against one loaded entity rather than two: it sleeps between ticks, and a pause
+// arriving during that sleep must not be overtaken by the step that follows it.
+func (s *service) stepLoaded(ctx context.Context, entity *domainsession.Session, count int) (*domainsession.Session, error) {
 	if count == 0 {
 		return entity, nil
 	}

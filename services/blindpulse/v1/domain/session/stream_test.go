@@ -118,6 +118,11 @@ func (h *streamHarness) driverCount() int {
 // exercising the real timer path rather than a fake clock that could hide an ordering bug.
 func newStreamHarness(t *testing.T) *streamHarness {
 	t.Helper()
+	return newStreamHarnessAtTick(t, 2*time.Millisecond)
+}
+
+func newStreamHarnessAtTick(t *testing.T, tick time.Duration) *streamHarness {
+	t.Helper()
 	base := newHarness(t, true)
 	bus, lease := newRecordingBus(), &countingLease{}
 	base.service = NewService(Dependencies{
@@ -126,7 +131,7 @@ func newStreamHarness(t *testing.T) *streamHarness {
 		Seeds:  func() int64 { return 4242 },
 		Clock:  func() time.Time { return time.Now().UTC() },
 		Bus:    bus, Lease: lease, Ticket: newMemoryTickets(),
-		BaseTick: 2 * time.Millisecond, Holder: "replica-a",
+		BaseTick: tick, Holder: "replica-a",
 	})
 	return &streamHarness{harness: base, bus: bus, lease: lease}
 }
@@ -234,6 +239,69 @@ func TestDriverDoesNotAdvanceAPausedSession(t *testing.T) {
 	current, _ := h.service.Get(context.Background(), h.userID, entity.ID)
 	if current.RevealedIndex != paused.RevealedIndex {
 		t.Errorf("paused session advanced from %d to %d", paused.RevealedIndex, current.RevealedIndex)
+	}
+}
+
+// The regression that the pause-before-subscribe test above cannot catch. The driver reads the
+// status, sleeps a tick, then steps — so a pause arriving during that sleep was overtaken by the
+// step behind it and released exactly one more bar. One bar is not a rounding error: it is a bar
+// the trader can read after asking not to be shown any more.
+func TestAPauseArrivingMidTickIsNotOvertakenByTheStepBehindIt(t *testing.T) {
+	// A slow clock on purpose. The other tests run at 2ms a bar, where the sleep is so short that
+	// a pause almost always lands between iterations and the bug hides. The failure needs the
+	// pause to arrive *during* a sleep, which is the normal case at the configured 250ms.
+	const tick = 200 * time.Millisecond
+	h := newStreamHarnessAtTick(t, tick)
+	entity := h.start(t)
+	ctx := context.Background()
+
+	_, stop, err := h.service.Stream(ctx, h.userID, entity.ID)
+	if err != nil {
+		t.Fatalf("Stream() error = %v", err)
+	}
+	defer stop()
+
+	// Wait for the first release, then pause a fraction into the next tick: mid-sleep, with the
+	// driver holding a status it read before the pause existed.
+	waitFor(t, "the clock to release a bar", func() bool { return h.bus.count() > 0 })
+	time.Sleep(tick / 4)
+
+	paused, err := h.service.Pause(ctx, h.userID, entity.ID)
+	if err != nil {
+		t.Fatalf("Pause() error = %v", err)
+	}
+	// Two full ticks: anything released in that window is the driver overtaking the pause, not
+	// racing with it.
+	time.Sleep(2 * tick)
+
+	after, err := h.service.Get(ctx, h.userID, entity.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if after.RevealedIndex != paused.RevealedIndex {
+		t.Errorf("the clock released %d bar(s) after the pause landed (edge %d then %d)",
+			after.RevealedIndex-paused.RevealedIndex, paused.RevealedIndex, after.RevealedIndex)
+	}
+}
+
+// A trader may pause and then walk forward bar by bar; that is a deliberate workflow, so the guard
+// above belongs on the playback clock and must not have been put on Step itself.
+func TestAManualStepStillWorksWhilePaused(t *testing.T) {
+	h := newStreamHarness(t)
+	entity := h.start(t)
+	ctx := context.Background()
+
+	paused, err := h.service.Pause(ctx, h.userID, entity.ID)
+	if err != nil {
+		t.Fatalf("Pause() error = %v", err)
+	}
+	stepped, err := h.service.Step(ctx, h.userID, entity.ID, 1)
+	if err != nil {
+		t.Fatalf("Step() while paused error = %v", err)
+	}
+	if stepped.RevealedIndex != paused.RevealedIndex+1 {
+		t.Errorf("manual step while paused moved the edge to %d, want %d",
+			stepped.RevealedIndex, paused.RevealedIndex+1)
 	}
 }
 

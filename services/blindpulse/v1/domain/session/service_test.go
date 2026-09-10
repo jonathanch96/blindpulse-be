@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +15,11 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// The playback clock runs on its own goroutine, so a test driving the service from the test
+// goroutine has two writers. The real adapter is PostgreSQL with row-level locking; the stub has
+// to be at least as safe, or the race detector reports the harness instead of the code.
 type sessionRepoStub struct {
+	mu   sync.Mutex
 	rows map[uuid.UUID]*domainsession.Session
 }
 
@@ -23,6 +28,8 @@ func newSessionRepoStub() *sessionRepoStub {
 }
 
 func (r *sessionRepoStub) Create(_ context.Context, entity *domainsession.Session) (*domainsession.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, existing := range r.rows {
 		if existing.AccountID == entity.AccountID && existing.Status.Live() {
 			return nil, apperror.New("SESSION_ALREADY_OPEN")
@@ -35,6 +42,8 @@ func (r *sessionRepoStub) Create(_ context.Context, entity *domainsession.Sessio
 }
 
 func (r *sessionRepoStub) GetByID(_ context.Context, id uuid.UUID) (*domainsession.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	entity, ok := r.rows[id]
 	if !ok {
 		return nil, apperror.New("SESSION_NOT_FOUND")
@@ -44,6 +53,8 @@ func (r *sessionRepoStub) GetByID(_ context.Context, id uuid.UUID) (*domainsessi
 }
 
 func (r *sessionRepoStub) ListLiveByUserID(_ context.Context, userID uuid.UUID) ([]domainsession.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	live := make([]domainsession.Session, 0)
 	for _, entity := range r.rows {
 		if entity.UserID == userID && entity.Status.Live() {
@@ -54,6 +65,8 @@ func (r *sessionRepoStub) ListLiveByUserID(_ context.Context, userID uuid.UUID) 
 }
 
 func (r *sessionRepoStub) GetLiveByAccountID(_ context.Context, accountID uuid.UUID) (*domainsession.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, entity := range r.rows {
 		if entity.AccountID == accountID && entity.Status.Live() {
 			copied := *entity
@@ -64,6 +77,8 @@ func (r *sessionRepoStub) GetLiveByAccountID(_ context.Context, accountID uuid.U
 }
 
 func (r *sessionRepoStub) UpdateCursor(_ context.Context, entity *domainsession.Session) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	stored, ok := r.rows[entity.ID]
 	if !ok || stored.Version != entity.Version {
 		return apperror.New("CONCURRENT_MODIFICATION")
@@ -76,16 +91,21 @@ func (r *sessionRepoStub) UpdateCursor(_ context.Context, entity *domainsession.
 }
 
 func (r *sessionRepoStub) UpdateStatus(_ context.Context, id uuid.UUID, status domainsession.Status, version int) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	stored, ok := r.rows[id]
 	if !ok || stored.Version != version {
 		return apperror.New("CONCURRENT_MODIFICATION")
 	}
-	stored.Status = status
-	stored.Version++
+	updated := *stored
+	updated.Status = status
+	updated.Version++
+	r.rows[id] = &updated
 	return nil
 }
 
 type feedReaderStub struct {
+	mu   sync.Mutex
 	feed domainfeed.Feed
 	// served records the widest range ever handed out, so a test can assert what the trader could
 	// actually have seen rather than only what the API returned.
@@ -97,11 +117,15 @@ type feedReaderStub struct {
 }
 
 func (f *feedReaderStub) Get(_ context.Context, _ uuid.UUID) (*domainfeed.Feed, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	copied := f.feed
 	return &copied, nil
 }
 
 func (f *feedReaderStub) ViewBars(_ context.Context, _ uuid.UUID, timeframe market.Timeframe, upto int) ([]domainfeed.Bar, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.viewedTimeframe = timeframe
 	f.viewedUpto = upto
 	if f.viewBars != nil {
@@ -111,6 +135,8 @@ func (f *feedReaderStub) ViewBars(_ context.Context, _ uuid.UUID, timeframe mark
 }
 
 func (f *feedReaderStub) Bars(_ context.Context, _ uuid.UUID, from, to int) ([]domainfeed.Bar, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.served = append(f.served, [2]int{from, to})
 	bars := make([]domainfeed.Bar, 0, to-from+1)
 	for index := from; index <= to; index++ {
@@ -126,6 +152,7 @@ func (a accountReaderStub) OwnedActiveAccount(context.Context, uuid.UUID, uuid.U
 }
 
 type stateStoreStub struct {
+	mu     sync.Mutex
 	states map[uuid.UUID]domainsession.State
 	// enabled false simulates Redis being absent, which must never change behaviour.
 	enabled bool
@@ -136,6 +163,8 @@ func newStateStoreStub(enabled bool) *stateStoreStub {
 }
 
 func (s *stateStoreStub) Load(_ context.Context, id uuid.UUID) (*domainsession.State, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if !s.enabled {
 		return nil, false
 	}
@@ -147,6 +176,8 @@ func (s *stateStoreStub) Load(_ context.Context, id uuid.UUID) (*domainsession.S
 }
 
 func (s *stateStoreStub) Save(_ context.Context, state domainsession.State) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.enabled {
 		s.states[state.SessionID] = state
 	}
@@ -154,13 +185,20 @@ func (s *stateStoreStub) Save(_ context.Context, state domainsession.State) erro
 }
 
 func (s *stateStoreStub) Clear(_ context.Context, id uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.states, id)
 	return nil
 }
 
-type outboxStub struct{ events []event.OutboxEvent }
+type outboxStub struct {
+	mu     sync.Mutex
+	events []event.OutboxEvent
+}
 
 func (o *outboxStub) Create(_ context.Context, record *event.OutboxEvent) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	o.events = append(o.events, *record)
 	return nil
 }
