@@ -1,6 +1,6 @@
 # Sprint 03 — Replay session engine (backend)
 
-**Status:** PLANNED · **Estimate:** 12–15 dev-days
+**Status:** DONE — 03A–03F delivered · **Estimate:** 12–15 dev-days · **Reviewed:** [docs/reviews/sprint-03-replay-engine.md](../reviews/sprint-03-replay-engine.md)
 **Requirements:** FR-REPLAY-01..08, BR-02, BR-10, BR-11, NFR-01, NFR-03
 **PRD:** §3.1, §6.1, §6.3
 **Depends on:** Sprint 02 · **Blocks:** Sprints 04, 05, 06

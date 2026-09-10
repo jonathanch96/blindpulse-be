@@ -51,7 +51,7 @@ the browser enforces is a rule a `curl` command ignores.
 | ID | Requirement | Owner | Sprint | Status |
 |---|---|---|---|---|
 | FR-FEED-01 | Ingest historical OHLCV for FX majors, equity indices, commodities and crypto | BE | 02 | DONE |
-| FR-FEED-02 | Randomized slicing across 1,200+ cycles spanning 2008–2025 | BE | 02 | PARTIAL — builder and selection done; the 1,200-cycle archive is a data-loading exercise, not code |
+| FR-FEED-02 | Randomized slicing across 1,200+ cycles spanning 2008–2025 | BE | 02 → **08** | PARTIAL — builder and selection done; the archive itself is Sprint 08, which also fixes the ingest defects review found |
 | FR-FEED-03 | Price normalization (scale + offset) so price levels cannot identify the instrument | BE | 02 | DONE |
 | FR-FEED-04 | Synthetic alias (`Asset #842 [FX/Crypto Masked]`) in place of the ticker | BE | 02 | DONE |
 | FR-FEED-05 | Relative tick offsets (`T-140`, `T-0`) in place of calendar dates | BOTH | 02 | DONE |
@@ -186,12 +186,13 @@ the browser enforces is a rule a `curl` command ignores.
 |---|---|---|---|
 | 00 | Foundation and infrastructure | NFR-06, NFR-08 | DONE |
 | 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE except the account settings screen (FR-AUTH-04) |
-| 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | DONE — the 1,200-cycle archive (FR-FEED-02) is data loading, not code |
+| 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | DONE — the archive and three ingest defects move to Sprint 08 |
 | 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01..04 | DONE — 03A–03F all delivered; NFR-01's p99-under-load histogram is the one item still owed |
 | 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09 | PLANNED |
 | 05 | Journal, drawings and the mystery reveal | FR-JOURNAL-01..06, FR-REVEAL-01..03, FR-TA-11, FR-UI-04/10, BR-08 | PLANNED |
 | 06 | Analytics, discipline index and cross-iteration | FR-ANALYTICS-01..09, FR-REVEAL-04/05, FR-ACCT-06..09, FR-TA-09, FR-UI-06/11 | PLANNED |
 | 07 | Institutional access and hardening | FR-AUTH-05..08 | PLANNED |
+| 08 | Market data archive and ingestion pipeline | FR-FEED-01/02, BR-01, NFR-05 | PLANNED — parallelisable with 04–06; owns the outstanding half of FR-FEED-02 |
 
 ## 5. Deferred from v1
 

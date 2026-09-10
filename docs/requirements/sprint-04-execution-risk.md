@@ -1,6 +1,6 @@
 # Sprint 04 — Execution and the risk gate (backend)
 
-**Status:** PLANNED · **Estimate:** 10–12 dev-days
+**Status:** PLANNED · **Estimate:** 10–12 dev-days · **Plan reviewed:** [docs/reviews/sprint-04-execution-risk.md](../reviews/sprint-04-execution-risk.md) — five decisions to settle before starting
 **Requirements:** FR-EXEC-01..05, FR-EXEC-07..09, FR-EXEC-11, BR-03, BR-04, BR-05, BR-09
 **PRD:** §3.3
 **Depends on:** Sprint 03 · **Blocks:** Sprints 05, 06

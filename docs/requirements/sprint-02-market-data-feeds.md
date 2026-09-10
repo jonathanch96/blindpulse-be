@@ -1,6 +1,6 @@
 # Sprint 02 — Market data and blinded feeds (backend)
 
-**Status:** PLANNED · **Estimate:** 8–10 dev-days
+**Status:** DONE — the 1,200-cycle archive and three ingest defects move to Sprint 08 · **Estimate:** 8–10 dev-days · **Reviewed:** [docs/reviews/sprint-02-market-data.md](../reviews/sprint-02-market-data.md)
 **Requirements:** FR-FEED-01..07, BR-01, NFR-05
 **PRD:** §1.2, §3.1
 **Depends on:** Sprint 01 (auth) · **Blocks:** Sprint 03 (the engine has nothing to replay without it)

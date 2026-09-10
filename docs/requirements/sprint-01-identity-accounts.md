@@ -1,6 +1,6 @@
 # Sprint 01 — Identity, accounts and reset trees (backend)
 
-**Status:** DONE
+**Status:** DONE except the account settings screen (FR-AUTH-04) · **Reviewed:** [docs/reviews/sprint-01-identity-accounts.md](../reviews/sprint-01-identity-accounts.md)
 **Requirements:** FR-AUTH-01..04, FR-ACCT-01..04, BR-06, BR-07, BR-11, NFR-07, NFR-08
 **PRD:** §3.5, §3.6, §6.3
 
