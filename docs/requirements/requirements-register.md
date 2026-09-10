@@ -163,7 +163,7 @@ the browser enforces is a rule a `curl` command ignores.
 | FR-UI-09 | Mobile Trade & Execution slip | FE | 04 | PLANNED |
 | FR-UI-10 | Mobile Journal & Reveal | FE | 05 | PLANNED |
 | FR-UI-11 | Mobile Accounts & Resets with branch switcher | FE | 06 | PLANNED |
-| FR-UI-12 | Touch gestures: pinch-zoom, drag crosshair, tap-to-step | FE | 03 | PLANNED |
+| FR-UI-12 | Touch gestures: pinch-zoom, drag crosshair, tap-to-step | FE | 03 | PARTIAL — drag-crosshair and tap-to-step work and are tested at 390px; pinch-zoom is not built |
 
 ## 3. Non-functional requirements (NFR)
 
@@ -172,7 +172,7 @@ the browser enforces is a rule a `curl` command ignores.
 | NFR-01 | Simulated tick latency under 15ms, displayed in the UI | §6.1 | BOTH | 03E | PARTIAL — measured 4–6ms at the socket against a live stack and displayed in the terminal; the p99 histogram under load is still owed |
 | NFR-02 | Candlestick canvas sustains 60 FPS at 10x with overlays | §6.2 | FE | 03D | **DONE** — measured in-browser at 10x: 60.3 FPS over 182 frames, 0 dropped, gap p99 16.80ms; draw cost 4.4ms p99 per the frontend's `docs/adr/0001-chart-rendering.md` |
 | NFR-03 | Deterministic session hashes over every action and fill | §6.3 | BE | 03 | Property test: same feed + seed ⇒ identical fills and hash |
-| NFR-04 | Full touch gestures on mobile web / PWA | §6.4 | FE | 03 | Playwright mobile project |
+| NFR-04 | Full touch gestures on mobile web / PWA | §6.4 | FE | 03 | PARTIAL — `e2e/mobile-replay-terminal.spec.ts` drives a full session at 390px: tap-to-step, touch-drag crosshair, tool selection, no sideways scroll. Pinch-zoom and swipe-up sheets (§03.7) are **not built**, so the gestures are not yet "full" |
 | NFR-05 | Zero hindsight leakage in any pre-reveal payload | §1.2, §3.1 | BE | 02 | **DONE** — payload + struct guards in `entities/response/feed/leak_test.go`, verified non-vacuous |
 | NFR-06 | Events are durable and at-least-once; a broker outage loses nothing | — | BE | 00 | Outbox rows stay pending through an outage; verified locally | 
 | NFR-07 | Immutable, verifiable history | §6.3 | BE | 01 | Chain recomputation; tamper test against a row altered in-database |
