@@ -36,7 +36,7 @@ is a state the system can enter and cannot leave.
 | ~~Medium~~ **FIXED** | `BE-03-2` | ~~Every released bar costs a full-window database read~~ — the window is cached in Redis under the TTL that was already configured for it |
 | ~~Medium~~ **FIXED** | `BE-03-3` | ~~NFR-03 is listed under Sprint 03 and is not implemented~~ — re-dated to Sprint 04, where fills first exist |
 | ~~Low~~ **FIXED** | `BE-03-4` | ~~`pkg/cache`'s lease scripts are untested~~ — eight tests against a real Redis, covering renewal, expiry handover and release-by-non-holder |
-| Low | `FE-03-2` | Chart and drawing *components* are untested; only their pure kernels are covered |
+| ~~Low~~ **PARTLY FIXED** | `FE-03-2` | ~~Chart and drawing renderers are untested~~ — `render.test.ts` on both sides now asserts against a recording canvas context, and catches the `withAlpha` bug. The React *components* (`price-chart.tsx`, `drawing-toolbar.tsx`) remain untested |
 
 ## What holds up
 
@@ -184,6 +184,13 @@ This is a reasonable trade rather than an oversight, and it is named because it 
 kernel test, found only by looking at a screenshot. A small number of component tests over
 `drawFrame` against a stub context — asserting that a forming bar strokes rather than fills, that a
 tinted fill actually carries an alpha — would have caught it.
+
+**Since fixed for the renderers.** `src/test/recording-canvas.ts` captures every call *and the style
+in force at that call*, which is the distinction that matters: the renderers set `fillStyle`
+immediately before each shape, so the final value says nothing about what any given shape was
+painted with. Restoring the original `withAlpha` now fails six tests, among them "tints the volume
+bars rather than painting them solid" and "zone fill … is opaque". The React components that compose
+these renderers are still untested; that part of the finding stands.
 
 ---
 
