@@ -198,8 +198,16 @@ func (s *service) UpdateProfile(ctx context.Context, id uuid.UUID, input UpdateP
 	if input.Name != nil {
 		entity.Name = strings.TrimSpace(*input.Name)
 	}
+	// A nil AvatarURL means the caller didn't mention it, so it stays as it was. An explicit empty
+	// string is the caller saying "remove it", and that stores NULL rather than an empty string: a
+	// blank avatar_url would reach the UI as <img src="">, which requests the current page again.
+	// Without this distinction a trader could set an avatar and never take it off.
 	if input.AvatarURL != nil {
-		entity.AvatarURL = input.AvatarURL
+		if trimmed := strings.TrimSpace(*input.AvatarURL); trimmed != "" {
+			entity.AvatarURL = &trimmed
+		} else {
+			entity.AvatarURL = nil
+		}
 	}
 	return s.deps.Repo.Update(ctx, entity)
 }

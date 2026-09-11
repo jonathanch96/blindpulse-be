@@ -38,6 +38,12 @@ type PublicUser struct {
 	// HasLoggedIn=false until the invitee actually uses them - that's the signal trip member lists
 	// use to show "not logged in yet".
 	HasLoggedIn bool
+	// HasPassword is true when this user has a password to change, as opposed to a Google-only
+	// account that is setting one for the first time. ChangePassword deliberately accepts an empty
+	// current password in that case (see the service), and without this the settings screen has no
+	// way to tell the two apart: it would demand a current password nobody has. It reports only
+	// whether a hash exists, never anything derived from it.
+	HasPassword bool
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -47,6 +53,7 @@ func (u User) Public() PublicUser {
 		ID: u.ID, Email: u.Email, Name: u.Name, AvatarURL: u.AvatarURL,
 		HasAccount:  u.PasswordHash != "" || u.GoogleID != nil,
 		HasLoggedIn: u.LastLoginAt != nil,
+		HasPassword: u.PasswordHash != "",
 		CreatedAt:   u.CreatedAt, UpdatedAt: u.UpdatedAt,
 	}
 }

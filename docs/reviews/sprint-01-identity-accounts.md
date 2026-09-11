@@ -22,7 +22,7 @@ was written, tested, and never wired to a route.
 |---|---|---|
 | ~~High~~ **FIXED** | `BE-01-1` | ~~`/auth/login` and `/auth/register` have no rate limiting~~ — two independent budgets (per address, per email) now wired onto the auth group, with a test over the real route table |
 | ~~Medium~~ **FIXED** | `BE-01-2` | ~~`cache.Incr` is dead code~~ — the auth throttle now counts in Redis, so the limit holds across replicas instead of being multiplied by however many are running |
-| Low | `BE-01-3` | `FR-AUTH-04` is PARTIAL and has been since Sprint 01; no account settings screen |
+| ~~Low~~ **FIXED** | `BE-01-3` | ~~`FR-AUTH-04` is PARTIAL and has been since Sprint 01; no account settings screen~~ — `/settings` is built over the routes that already existed, and `has_password` was added to the user payload so the password-less Google path is reachable |
 | ~~Low~~ **PARTLY FIXED** | `BE-01-4` | ~~Controller packages have no tests~~ — `controllers/routes_test.go` now covers the auth group's composition and error paths; the other controller packages are still untested |
 
 ## What holds up
@@ -92,15 +92,30 @@ degrade-gracefully pattern the frame bus already uses), or delete it and say in 
 that limiting is per-process. Both are defensible; the current state — a primitive that exists and
 does nothing — is the one that misleads.
 
-### `BE-01-3` · Low · FR-AUTH-04 has been PARTIAL for the whole project
+### `BE-01-3` · ~~Low~~ **FIXED** · FR-AUTH-04 was PARTIAL for the whole project
 
-**Where:** register row FR-AUTH-04; frontend has `PATCH /users/me` and `/users/me/password` routes
-and no screen that calls them.
+**Where:** register row FR-AUTH-04; frontend had `PATCH /users/me` and `/users/me/password` routes
+and no screen that called them.
 
-The API and BFF routes exist and work; there is nowhere in the product to change a password. The
-register records this honestly (it was downgraded from DONE when it was noticed), so this is
-scheduling, not misreporting. It is called out here because it is now the **oldest outstanding
-item in the project** and is small enough to have been done four times over.
+The API and BFF routes existed and worked; there was nowhere in the product to change a password.
+The register recorded this honestly (it was downgraded from DONE when it was noticed), so this was
+scheduling, not misreporting. It was called out here because it had become the **oldest outstanding
+item in the project**.
+
+**Fixed.** The frontend's `/settings` screen calls the routes that were already there. Building it
+surfaced one thing the API could not express: `ChangePassword` deliberately accepts an empty current
+password when the account has no hash — a Google-only user setting their first one — and nothing on
+the wire said which case a given user was in. `has_account` does not answer it, because Google
+credentials count. So `has_password` was added to `PublicUser` and the user response, guarded by a
+payload test asserting no credential material rides along with it. Without that the screen would
+have demanded a current password from an account that never had one: a dead end with no error
+message capable of explaining itself.
+
+Two other gaps closed on the way. `UpdateProfile` now treats an explicit blank avatar URL as
+"remove it" and stores NULL rather than an empty string, which is both the only way removal is
+expressible and the difference between no avatar and an `<img src="">` that re-requests the page.
+And `domain/user` had no tests at all; it now covers both paths the screen rides on, including the
+one where a wrong current password must not be mistaken for an account that has none.
 
 ### `BE-01-4` · Low · No controller-level tests
 
@@ -122,7 +137,8 @@ the missing rate limiter in one pass.
 
 - `docs/requirements/sprint-01-identity-accounts.md` read **Status: DONE** with no qualifier while
   the register carried FR-AUTH-04 as PARTIAL. Corrected during this review to match the register's
-  "DONE except the account settings screen". A sweep found the same class of drift in sprints 02 and
+  "DONE except the account settings screen", and now simply DONE, the screen having been built (see
+  `BE-01-3`). A sweep found the same class of drift in sprints 02 and
   03, both of which were delivered and still labelled PLANNED — see `sprint-02-market-data.md`
   finding `BE-02-5`.
 

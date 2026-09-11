@@ -40,7 +40,7 @@ the browser enforces is a rule a `curl` command ignores.
 | FR-AUTH-01 | Email + password registration and sign-in, Argon2id hashing | BOTH | 01 | DONE |
 | FR-AUTH-02 | Rotating refresh tokens, short-lived HS256 access tokens | BOTH | 01 | DONE |
 | FR-AUTH-03 | Google OAuth sign-in | BOTH | 01 | DONE |
-| FR-AUTH-04 | Profile read/update and password change | BOTH | 01 | PARTIAL — API and BFF routes done; the account settings screen is not built |
+| FR-AUTH-04 | Profile read/update and password change | BOTH | 01 | **DONE** — the frontend's `/settings` screen closes it; `has_password` was added to the user payload so a Google-only account is offered a first password rather than asked for a current one |
 | FR-AUTH-05 | TradingView SSO | BOTH | 07 | PLANNED |
 | FR-AUTH-06 | Enterprise SAML 2.0 / Okta for prop desks and academies | BOTH | 07 | PLANNED |
 | FR-AUTH-07 | GitHub and Apple OAuth | BOTH | 07 | PLANNED |
@@ -185,7 +185,7 @@ the browser enforces is a rule a `curl` command ignores.
 | Sprint | Theme | Requirements | Status |
 |---|---|---|---|
 | 00 | Foundation and infrastructure | NFR-06, NFR-08 | DONE |
-| 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE except the account settings screen (FR-AUTH-04) |
+| 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE — the account settings screen closed the last gap (FR-AUTH-04) |
 | 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | DONE — the archive and three ingest defects move to Sprint 08 |
 | 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01/02/04 | DONE — 03A–03F all delivered; NFR-01's p99-under-load histogram is the one item still owed |
 | 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09, **NFR-03** | PLANNED — all five plan decisions settled and written into the plan; no open dependencies |
