@@ -22,6 +22,16 @@ type Service interface {
 	Delete(ctx context.Context, userID, entryID uuid.UUID) error
 	// Revisions returns what an entry said before each edit, oldest first.
 	Revisions(ctx context.Context, userID, entryID uuid.UUID) ([]domainjournal.Revision, error)
+	// AttachMedia sanitizes an uploaded image and hangs it off an entry. The upload is re-encoded
+	// from its pixels before it is stored, because a screenshot carries an EXIF capture timestamp
+	// and a session that withheld the date for eight hundred bars is undone by one of those.
+	//
+	// One image per entry: attaching a second replaces the first, and the first is deleted. A
+	// gallery is a different feature, and orphaned blobs are a cost with no reader.
+	AttachMedia(ctx context.Context, userID, entryID uuid.UUID, upload []byte) (*domainjournal.Entry, error)
+	// Media returns the stored bytes for a signed link. It does no ownership check and is not
+	// supposed to: the link is the authority, minted when the entry was read by its owner.
+	Media(ctx context.Context, key string) ([]byte, string, error)
 }
 
 type Repository interface {
@@ -43,6 +53,14 @@ type SessionReader interface {
 
 type OutboxRepository interface {
 	Create(ctx context.Context, event *EventRecord) error
+}
+
+// MediaStore holds the sanitized images. Declared here rather than imported so the domain does not
+// know whether the bytes land on a disk or in a bucket.
+type MediaStore interface {
+	Put(ctx context.Context, key string, content []byte, contentType string) error
+	Get(ctx context.Context, key string) ([]byte, string, error)
+	Delete(ctx context.Context, key string) error
 }
 
 // UnitOfWork runs the edit and its revision in one transaction. A revision written without the

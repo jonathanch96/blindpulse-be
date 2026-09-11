@@ -18,6 +18,15 @@ type Dependencies struct {
 	UOW      UnitOfWork
 	Topic    func(string) string
 	Clock    func() time.Time
+	// Media is optional. Without it, uploads are refused with a code that says the feature is off
+	// rather than failing as an internal error — a deployment with no signing secret has decided
+	// not to accept images, and that is a configuration, not a fault.
+	Media MediaStore
+	// MaxUploadBytes caps one image. Zero uses the media package's default.
+	MaxUploadBytes int64
+	// Keys mints the storage key for an entry's image. Injected so a test can pin it and so the
+	// key never derives from anything the uploader controls.
+	Keys func(entryID uuid.UUID, extension string) string
 }
 
 type service struct{ deps Dependencies }

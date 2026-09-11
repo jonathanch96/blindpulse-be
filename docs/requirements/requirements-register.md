@@ -127,7 +127,7 @@ the browser enforces is a rule a `curl` command ignores.
 | FR-JOURNAL-03 | Candle-by-candle trade log with entry/exit, duration, PnL and R | FE | 05 | PLANNED |
 | FR-JOURNAL-04 | Session post-mortem free text with prompt chips | FE | 05 | PLANNED |
 | FR-JOURNAL-05 | Execution footprint chart marking fills with their R-multiples | FE | 05 | PLANNED |
-| FR-JOURNAL-06 | Journal media upload with EXIF stripped and signed URLs | BOTH | 05 | PLANNED — the one part of Sprint 05 not built; `journal_entries.media_key` exists and nothing writes it |
+| FR-JOURNAL-06 | Journal media upload with EXIF stripped and signed URLs | BOTH | 05 | **DONE** — decoded and re-encoded from the pixels rather than segment-stripped, HMAC-signed links expiring in minutes, local store behind an interface (S3 deliberately unwritten, untestable here) |
 | FR-REVEAL-01 | Reveal the real ticker, timeframe and date window (BR-08) | BOTH | 05 | **DONE (BE)** — frozen at reveal time into `session_reveals`, served by a response type separate from the blinded one rather than a conditional field |
 | FR-REVEAL-02 | Macro driver annotation explaining the period | BOTH | 05 | **DONE (BE)** — `macro_notes` and `macro_tags` added to the feed in migration `000013`; the reveal had nowhere to read them from before |
 | FR-REVEAL-03 | Benchmark alpha vs buy-and-hold over the same window | BE | 05 | **DONE** — computed on real prices (the affine blinding does not preserve percentage returns), entering at the first *tradeable* bar; verified live against a hand recomputation to 4dp |

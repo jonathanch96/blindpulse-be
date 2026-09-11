@@ -11,11 +11,14 @@ package journal
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jblabs/blindpulse-be/pkg/apperror"
+	"github.com/jblabs/blindpulse-be/pkg/media"
 	domainjournal "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/journal"
 	"github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/event"
 )
@@ -150,6 +153,96 @@ func (s *service) Delete(ctx context.Context, userID, entryID uuid.UUID) error {
 	// The revisions go with the row, so the event is the only remaining trace that this entry
 	// existed at all. That is what makes a deletion distinguishable from a note never written.
 	return s.emit(ctx, entryID, entry.SessionID, "deleted", *entry)
+}
+
+// AttachMedia is FR-JOURNAL-06, and its EXIF rule is a blinding guard rather than hygiene.
+//
+// A trader's screenshot carries a capture timestamp, and often GPS. The session withheld the date
+// from every payload for eight hundred bars; one screenshot saying "taken 14 March 2023, 08:31"
+// undoes that, and the leak arrives from inside the trader's own upload — the only vector in this
+// system where the client supplies bytes the server later hands back.
+func (s *service) AttachMedia(ctx context.Context, userID, entryID uuid.UUID, upload []byte) (*domainjournal.Entry, error) {
+	if s.deps.Media == nil {
+		return nil, apperror.Newf("MEDIA_LINK_INVALID", "image uploads are not enabled on this deployment")
+	}
+	entry, err := s.owned(ctx, userID, entryID)
+	if err != nil {
+		return nil, err
+	}
+	limits := media.DefaultLimits
+	if s.deps.MaxUploadBytes > 0 {
+		limits.MaxBytes = s.deps.MaxUploadBytes
+	}
+	sanitized, err := media.Sanitize(upload, limits)
+	switch {
+	case errors.Is(err, media.ErrTooLarge):
+		return nil, apperror.New("FILE_TOO_LARGE")
+	case errors.Is(err, media.ErrTooManyPixels):
+		return nil, apperror.Newf("FILE_TOO_LARGE", "image dimensions exceed the limit")
+	case errors.Is(err, media.ErrUnsupportedType), errors.Is(err, media.ErrUndecodable):
+		return nil, apperror.New("UNSUPPORTED_MEDIA_TYPE")
+	case err != nil:
+		return nil, apperror.Wrap(err, "INTERNAL_ERROR")
+	}
+
+	key := s.mediaKey(entryID, media.Extension(sanitized.ContentType))
+	if err := s.deps.Media.Put(ctx, key, sanitized.Bytes, sanitized.ContentType); err != nil {
+		return nil, apperror.Wrap(err, "INTERNAL_ERROR")
+	}
+	previous := entry.MediaKey
+
+	updated := *entry
+	updated.MediaKey = &key
+	updated.UpdatedAt = s.deps.Clock()
+	updated.Version = entry.Version + 1
+	// The revision is filed for the same reason an edit files one: swapping the screenshot changes
+	// what the entry shows, and the projector reads what the trader recorded at the time.
+	revision := entry.Supersede(s.deps.Clock())
+	err = s.deps.UOW.Do(ctx, func(txCtx context.Context) error {
+		if revisionErr := s.deps.Repo.CreateRevision(txCtx, &revision); revisionErr != nil {
+			return revisionErr
+		}
+		return s.deps.Repo.Update(txCtx, &updated)
+	})
+	if err != nil {
+		// The blob is already written. Remove it rather than leave a file nothing points at: the
+		// row is the index, so an unreferenced object is storage nobody can ever reach or bill for
+		// knowingly.
+		_ = s.deps.Media.Delete(ctx, key)
+		return nil, err
+	}
+	// Only once the row points at the new image. Deleting the old one first would, on a failed
+	// update, leave the entry referencing a file that no longer exists.
+	if previous != nil && *previous != key {
+		_ = s.deps.Media.Delete(ctx, *previous)
+	}
+	return &updated, nil
+}
+
+func (s *service) Media(ctx context.Context, key string) ([]byte, string, error) {
+	if s.deps.Media == nil {
+		return nil, "", apperror.New("MEDIA_LINK_INVALID")
+	}
+	content, contentType, err := s.deps.Media.Get(ctx, key)
+	if err != nil {
+		// Not-found and malformed collapse into one answer. A signed link that resolves to nothing
+		// is indistinguishable from a forged one from the client's side, and distinguishing them
+		// would confirm which keys exist.
+		return nil, "", apperror.New("MEDIA_LINK_INVALID")
+	}
+	return content, contentType, nil
+}
+
+// mediaKey names the stored object. It derives from the entry id and the sniffed format and from
+// nothing the uploader sent: a client-supplied filename is a path traversal waiting to happen, and
+// it is also somewhere a trader could leak the window by calling their file eurusd-2023-03-14.png.
+func (s *service) mediaKey(entryID uuid.UUID, extension string) string {
+	if s.deps.Keys != nil {
+		return s.deps.Keys(entryID, extension)
+	}
+	// A fresh suffix per upload rather than a stable name, so a replaced image cannot be served
+	// from a cache or a CDN that still holds the old one under the same URL.
+	return fmt.Sprintf("journal/%s-%s%s", entryID, uuid.NewString()[:8], extension)
 }
 
 func (s *service) Revisions(ctx context.Context, userID, entryID uuid.UUID) ([]domainjournal.Revision, error) {

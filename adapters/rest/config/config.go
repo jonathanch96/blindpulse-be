@@ -84,6 +84,17 @@ type StorageConfig struct {
 	UseSSL    bool   `envconfig:"STORAGE_USE_SSL" default:"false"`
 	LocalRoot string `envconfig:"STORAGE_LOCAL_ROOT" default:"./var/journal"`
 	PublicURL string `envconfig:"STORAGE_PUBLIC_URL" default:"http://localhost:8080/api/v1/journal-media"`
+	// MaxUploadBytes caps one journal image.
+	MaxUploadBytes int64 `envconfig:"STORAGE_MAX_UPLOAD_BYTES" default:"5242880"`
+	// URLTTL is how long a signed media link stays valid. Short, because the link is the authority:
+	// an <img src> cannot carry a bearer token, so anyone holding the URL can fetch it until it
+	// expires. Long enough that a screen stays rendered while a trader reads it.
+	URLTTL time.Duration `envconfig:"STORAGE_URL_TTL" default:"15m"`
+	// SignSecret signs those links. Empty disables media uploads entirely rather than signing with
+	// a known key — a predictable signature is worse than no feature, because it looks like
+	// protection. It is separate from the JWT secrets on purpose: a key used for two jobs makes
+	// rotating it for one of them a decision about the other.
+	SignSecret string `envconfig:"STORAGE_SIGN_SECRET"`
 }
 
 // RedisConfig drives the replay hot path: session cursor state, bar-window caches, order

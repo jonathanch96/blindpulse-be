@@ -12,9 +12,11 @@ import (
 	"github.com/jblabs/blindpulse-be/pkg/cache"
 	apphash "github.com/jblabs/blindpulse-be/pkg/hash"
 	appjwt "github.com/jblabs/blindpulse-be/pkg/jwt"
+	"github.com/jblabs/blindpulse-be/pkg/media"
 	"github.com/jblabs/blindpulse-be/pkg/middleware"
 	googleoauth "github.com/jblabs/blindpulse-be/pkg/oauth/google"
 	"github.com/jblabs/blindpulse-be/pkg/response"
+	"github.com/jblabs/blindpulse-be/pkg/storage"
 	accountcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/account"
 	authcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/auth"
 	drawingcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/drawing"
@@ -139,12 +141,21 @@ func NewService(deps Dependencies) *Service {
 	// service: they need to know who owns it and where its cursor is, and nothing else. Wiring the
 	// whole session service in would make a journal entry depend on the replay clock.
 	sessionRepo := sessionsdb.New(deps.DB)
+	// Media is optional and off unless a signing secret is configured. Signing with a known key
+	// would be worse than having no feature: a predictable signature looks like protection.
+	mediaSigner := media.NewSigner(deps.Cfg.Storage.SignSecret, deps.Cfg.Storage.URLTTL)
+	var mediaStore journaldomain.MediaStore
+	if mediaSigner.Enabled() {
+		mediaStore = storage.NewLocal(deps.Cfg.Storage.LocalRoot)
+	}
 	journalService := journaldomain.NewService(journaldomain.Dependencies{
-		Repo:     journaldb.New(deps.DB),
-		Sessions: journaldomain.NewSessionReader(sessionRepo),
-		Outbox:   outboxdb.New(deps.DB),
-		UOW:      appdb.NewGormUnitOfWork(deps.DB),
-		Topic:    deps.Cfg.Kafka.Topic,
+		Repo:           journaldb.New(deps.DB),
+		Sessions:       journaldomain.NewSessionReader(sessionRepo),
+		Outbox:         outboxdb.New(deps.DB),
+		UOW:            appdb.NewGormUnitOfWork(deps.DB),
+		Topic:          deps.Cfg.Kafka.Topic,
+		Media:          mediaStore,
+		MaxUploadBytes: deps.Cfg.Storage.MaxUploadBytes,
 	})
 	drawingService := drawingdomain.NewService(drawingdomain.Dependencies{
 		Repo:     drawingsdb.New(deps.DB),
@@ -178,7 +189,8 @@ func NewService(deps Dependencies) *Service {
 		accounts: accountcontroller.NewController(accountService),
 		feeds:    feedcontroller.NewController(feedService, instrumentRepo),
 		sessions: sessioncontroller.NewController(sessionService, feedService, deps.Cfg.CORS.AllowedOrigins),
-		journal:  journalcontroller.NewController(journalService),
+		journal: journalcontroller.NewController(
+			journalService, mediaSigner, deps.Cfg.Storage.PublicURL, deps.Cfg.Storage.MaxUploadBytes),
 		drawings: drawingcontroller.NewController(drawingService),
 		reveals:  revealcontroller.NewController(revealService),
 		issuer:   issuer,
@@ -205,6 +217,9 @@ func (s *Service) RegisterRoutes(group *gin.RouterGroup) {
 	// Outside the bearer middleware on purpose: the socket authenticates with a single-use ticket
 	// minted by an authenticated caller, because a browser cannot set headers on a WS handshake.
 	s.sessions.RegisterStreamRoutes(group)
+	// Same constraint, same shape: an <img src> cannot carry an Authorization header, so a journal
+	// image is served against a short-lived signed link rather than a bearer.
+	s.journal.RegisterMediaRoutes(group)
 }
 
 // instanceID names this process for the driver lease. A hostname would collide across pods that

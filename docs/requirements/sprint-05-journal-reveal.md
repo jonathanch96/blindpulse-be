@@ -1,6 +1,6 @@
 # Sprint 05 — Journal, drawings and the mystery reveal (backend)
 
-**Status:** **DONE except journal media (05.5)** · **Estimate:** 8–10 dev-days
+**Status:** **DONE** · **Estimate:** 8–10 dev-days
 **Requirements:** FR-JOURNAL-01/02/06, FR-REVEAL-01..03, FR-TA-11, BR-08
 **PRD:** §3.2, §3.4
 **Depends on:** Sprint 03 (fully). Sprint 04 for *content*, not for function — see below · **Blocks:** Sprint 06
@@ -84,18 +84,28 @@ After a reveal, and only then, the session's bar responses may carry real timest
 symbol. This is a **separate response type**, not a conditional field on the blinded one — a flag
 that switches a field on is one refactor away from switching it on too early.
 
-### 05.5 Journal media (FR-JOURNAL-06) — **NOT BUILT**
-- `POST /sessions/{id}/journal/{jid}/media` — image upload, size and MIME allow-list.
-- **EXIF stripped on ingest.** A screenshot can carry a capture timestamp, which would date the
-  session from inside the trader's own upload.
-- Signed, expiring URLs; local filesystem or S3/MinIO per config.
-
-This is the one part of the sprint that is not built. `journal_entries.media_key` exists and nothing
-writes it; the journal response carries a `media_url` that is always null. It is called out rather
-than quietly folded in because it is the only task here needing infrastructure the service does not
-otherwise have — object storage, a signing key, an image decoder — and because the EXIF rule is a
-blinding guard in its own right: a trader's screenshot can date the window from inside their own
-upload, which nothing else in this sprint has to defend against.
+### 05.5 Journal media (FR-JOURNAL-06)
+- `POST /sessions/{id}/journal/{jid}/media` — JPEG or PNG, capped by bytes *and* by pixels: a 50KB
+  PNG can declare 40,000 × 40,000, so the header is read and refused before anything is decoded.
+- **EXIF stripped on ingest, by decoding and re-encoding from the pixels.** Not by stripping
+  metadata segments: a stripper has to know every marker that can carry metadata (EXIF in APP1, XMP
+  in another APP1, IPTC in APP13, ICC in APP2, PNG's tEXt/iTXt/zTXt/eXIf/tIME), and a format that
+  gains one gets through. Re-encoding drops everything by construction — what comes out is a
+  function of the image and nothing else survives. The cost is a re-compression, and a slightly
+  softer screenshot is worth more than a date the trader did not mean to publish.
+- The stored filename never comes from the upload: it is the entry id plus the sniffed format. A
+  client-supplied name is a path traversal waiting to happen, and also somewhere a trader could
+  publish the window by calling their file `eurusd-2023-03-14.png`.
+- **Signed, expiring URLs.** An `<img src>` cannot carry an Authorization header — the same
+  constraint that produced the websocket ticket — so the link is the authority: an HMAC over the key
+  and an expiry, minted per response when the owner reads the entry, valid for minutes.
+- **Local filesystem.** S3/MinIO is what `StorageConfig.Endpoint` anticipates and is deliberately
+  not written: it cannot be exercised from this environment, and an object-store adapter that has
+  never talked to an object store is a claim rather than a feature. The `storage.Store` interface is
+  the part that makes adding it a new file.
+- One image per entry, and a replacement gets a fresh key so a cache still holding the old one
+  cannot serve it. Empty `STORAGE_SIGN_SECRET` disables uploads rather than signing with a known
+  key: a predictable signature looks like protection and is not.
 
 ### 05.6 Events
 `journal.written`, `session.revealed`.
@@ -110,7 +120,7 @@ upload, which nothing else in this sprint has to defend against.
 | 05-AC-4 | An unrevealed session | `GET /reveal` | `REVEAL_LOCKED` |
 | 05-AC-5 | A journal entry at bar 500, cursor at 142 | Submitted | `INVALID_CURSOR` |
 | 05-AC-6 | A drawing payload with an ISO timestamp | Submitted | Rejected — anchors are bar indices |
-| 05-AC-7 | An image with EXIF GPS and a capture date | Uploaded | Stored file contains no EXIF |
+| 05-AC-7 | An image with EXIF GPS and a capture date | Uploaded | Stored file contains no EXIF — **verified live**, fetched back through the signed link |
 | 05-AC-8 | A revealed session | Benchmark recomputed by hand | Matches the stored value to 4 decimal places |
 | 05-AC-9 | An edited journal entry | Inspected | `version` incremented; the original is still retrievable |
 
@@ -118,11 +128,14 @@ upload, which nothing else in this sprint has to defend against.
 - **Domain:** reveal preconditions as a state table; benchmark maths against hand-computed windows.
 - **Contract:** the Sprint 02 leak test asserts pre-reveal endpoints stay clean **and** that
   post-reveal responses use the separate disclosed type.
-- **Integration:** EXIF stripping against real image fixtures.
+- **Integration:** EXIF stripping against real image fixtures — a JPEG with a spliced APP1/Exif
+  segment and a PNG with a spliced tEXt chunk, asserted over the *stored bytes* rather than over a
+  parsed structure, because the claim is that nothing survived rather than that one library can no
+  longer find it. Verified non-vacuous by making Sanitize pass the upload through.
 
 ## What the build changed about the plan
 
-Three things the plan did not anticipate, recorded because each is a decision rather than a detail:
+Four things the plan did not anticipate, recorded because each is a decision rather than a detail:
 
 - **Journal revisions needed a table.** 05-AC-9 asks that an edited entry's original stay
   retrievable, and `version` alone cannot do that — it records *that* an edit happened, not what was
@@ -133,6 +146,11 @@ Three things the plan did not anticipate, recorded because each is a decision ra
   at all. The plan's own reason for opaque payloads is "so the toolkit can add a tool without a
   migration", and a CHECK listing tools is a migration per tool — it is now a shape constraint, with
   the vocabulary in the domain where adding a tool is a line in a list.
+- **Media needed a wildcard route, and that bug was invisible from the outside.** A storage key
+  contains slashes, and Go normalizes `%2F` back to `/` before routing — so a `:key` parameter never
+  matched and every signed link 404'd while its signature was perfectly valid. It was caught only by
+  fetching an image back and looking at what arrived: the EXIF assertion had been passing against 18
+  bytes of a 404 page.
 - **The macro annotation had no source.** The reveal promises notes and tags; `blinded_feeds` only
   carried `macro_label`. `macro_notes` and `macro_tags` were added to the feed, with `-macro-notes`
   and `-macro-tags` flags on the loader, so a curated window can carry them.
@@ -141,12 +159,20 @@ Three things the plan did not anticipate, recorded because each is a decision ra
 All criteria met; a trader can run a session, journal through it, close it, reveal it, and see a
 benchmark comparison that reconciles with a manual calculation.
 
-**Met, less 05.5.** Verified live end to end: a note past the cursor is `INVALID_CURSOR`, an edit
+**Met.** Verified live end to end: a note past the cursor is `INVALID_CURSOR`, an edit
 files its revision and leaves unmentioned fields alone, a drawing carrying a date is refused with the
 reason stated, a reveal on an open session is `REVEAL_LOCKED` and a second one is
 `ALREADY_REVEALED`, and the stored benchmark matched a hand recomputation from the disclosed series
 to four decimal places (5.6160 against 5.616). The blinded bars endpoint still carries no timestamp
 and no symbol after the same session has been revealed.
+
+For media specifically, with a JPEG carrying a real APP1 segment holding `DateTimeOriginal
+2023:03:14 08:31:00` and a GPS tag: the upload is accepted, the signed link fetches back 376 bytes
+of `image/jpeg`, and none of `Exif`, the date, the time, `GPSLatitude`, the coordinate or the
+software name survives in the stored bytes. An unsigned link, a tampered signature and a different
+key under the same signature are all refused; an SVG and a shell script renamed `.png` are
+`UNSUPPORTED_MEDIA_TYPE`; a 6MB upload is `FILE_TOO_LARGE`; a replacement gets a new key and the old
+link stops working; and a stranger's upload to someone else's entry is `JOURNAL_NOT_FOUND`.
 
 ## Risks
 

@@ -1,7 +1,13 @@
 package journal
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"testing"
 	"time"
 
@@ -297,5 +303,196 @@ func TestSomeoneElsesEntryIsNotFound(t *testing.T) {
 	}
 	if _, err := service.Revisions(context.Background(), stranger, entry.ID); !apperror.Is(err, "JOURNAL_NOT_FOUND") {
 		t.Errorf("err = %v, want JOURNAL_NOT_FOUND", err)
+	}
+}
+
+// --- media (FR-JOURNAL-06) ---
+
+type mediaStub struct {
+	objects map[string][]byte
+	// failPut simulates a store that refuses, so the rollback path can be exercised.
+	failPut bool
+}
+
+func newMediaStub() *mediaStub { return &mediaStub{objects: make(map[string][]byte)} }
+
+func (m *mediaStub) Put(_ context.Context, key string, content []byte, _ string) error {
+	if m.failPut {
+		return errors.New("store unavailable")
+	}
+	m.objects[key] = content
+	return nil
+}
+
+func (m *mediaStub) Get(_ context.Context, key string) ([]byte, string, error) {
+	content, ok := m.objects[key]
+	if !ok {
+		return nil, "", errors.New("not found")
+	}
+	return content, "image/png", nil
+}
+
+func (m *mediaStub) Delete(_ context.Context, key string) error {
+	delete(m.objects, key)
+	return nil
+}
+
+func pngFixture(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for x := 0; x < 8; x++ {
+		img.Set(x, x, color.RGBA{R: 200, G: 10, B: 10, A: 255})
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	return out.Bytes()
+}
+
+func mediaServiceFor(repo *repoStub, session sessionStub, store MediaStore) Service {
+	return NewService(Dependencies{
+		Repo: repo, Sessions: session, UOW: rollbackUOW{repo: repo}, Media: store,
+		Clock: func() time.Time { return time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC) },
+		// Pinned so the assertions can name the key. Production mints a fresh suffix per upload, so
+		// a replaced image cannot be served from a cache still holding the old one.
+		Keys: func(entryID uuid.UUID, extension string) string { return "journal/" + entryID.String() + extension },
+	})
+}
+
+func TestAttachMediaStoresASanitizedImageAndPointsTheEntryAtIt(t *testing.T) {
+	repo, store := newRepoStub(), newMediaStub()
+	userID := uuid.New()
+	service := mediaServiceFor(repo, sessionStub{userID: userID, cursor: 142}, store)
+
+	entry, err := service.Write(context.Background(), userID, uuid.New(), WriteInput{BarIndex: 88, Note: text("n")})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	updated, err := service.AttachMedia(context.Background(), userID, entry.ID, pngFixture(t))
+	if err != nil {
+		t.Fatalf("AttachMedia: %v", err)
+	}
+	if updated.MediaKey == nil {
+		t.Fatal("the entry does not point at an image")
+	}
+	if _, ok := store.objects[*updated.MediaKey]; !ok {
+		t.Errorf("nothing was stored under %q", *updated.MediaKey)
+	}
+	// Swapping the screenshot changes what the entry shows, so it files a revision for the same
+	// reason a text edit does.
+	if updated.Version != 2 {
+		t.Errorf("version = %d, want 2", updated.Version)
+	}
+	if len(repo.revisions[entry.ID]) != 1 {
+		t.Errorf("%d revisions, want 1", len(repo.revisions[entry.ID]))
+	}
+}
+
+func TestAttachMediaRefusesWhatIsNotAnAcceptedImage(t *testing.T) {
+	repo, store := newRepoStub(), newMediaStub()
+	userID := uuid.New()
+	service := mediaServiceFor(repo, sessionStub{userID: userID, cursor: 142}, store)
+	entry, err := service.Write(context.Background(), userID, uuid.New(), WriteInput{BarIndex: 88, Note: text("n")})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	// An SVG is a document that can carry script and fetch remote resources — the worst thing to
+	// accept and then hand back under a signed URL.
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
+	if _, err := service.AttachMedia(context.Background(), userID, entry.ID, svg); !apperror.Is(err, "UNSUPPORTED_MEDIA_TYPE") {
+		t.Errorf("err = %v, want UNSUPPORTED_MEDIA_TYPE", err)
+	}
+	if len(store.objects) != 0 {
+		t.Errorf("%d objects stored for a refused upload", len(store.objects))
+	}
+}
+
+// The blob is written before the row. A failure after that would leave a file nothing points at,
+// which is storage nobody can reach and nobody knows to bill for.
+func TestAttachMediaRemovesTheBlobWhenTheRowCannotBeWritten(t *testing.T) {
+	repo, store := newRepoStub(), newMediaStub()
+	userID := uuid.New()
+	service := mediaServiceFor(repo, sessionStub{userID: userID, cursor: 142}, store)
+	entry, err := service.Write(context.Background(), userID, uuid.New(), WriteInput{BarIndex: 88, Note: text("n")})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	repo.failUpdate = true
+	if _, err := service.AttachMedia(context.Background(), userID, entry.ID, pngFixture(t)); err == nil {
+		t.Fatal("the attach succeeded despite a failing update")
+	}
+	if len(store.objects) != 0 {
+		t.Errorf("%d orphaned objects left behind", len(store.objects))
+	}
+}
+
+// One image per entry. The previous object is removed only after the row points at the new one:
+// the other order would, on a failed update, leave the entry referencing a file that is gone.
+func TestAttachingASecondImageReplacesAndRemovesTheFirst(t *testing.T) {
+	repo, store := newRepoStub(), newMediaStub()
+	userID := uuid.New()
+	keys := 0
+	service := NewService(Dependencies{
+		Repo: repo, Sessions: sessionStub{userID: userID, cursor: 142}, UOW: rollbackUOW{repo: repo},
+		Media: store, Clock: func() time.Time { return time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC) },
+		Keys: func(entryID uuid.UUID, extension string) string {
+			keys++
+			return fmt.Sprintf("journal/%s-%d%s", entryID, keys, extension)
+		},
+	})
+	entry, err := service.Write(context.Background(), userID, uuid.New(), WriteInput{BarIndex: 88, Note: text("n")})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	first, err := service.AttachMedia(context.Background(), userID, entry.ID, pngFixture(t))
+	if err != nil {
+		t.Fatalf("first AttachMedia: %v", err)
+	}
+	second, err := service.AttachMedia(context.Background(), userID, entry.ID, pngFixture(t))
+	if err != nil {
+		t.Fatalf("second AttachMedia: %v", err)
+	}
+	if *first.MediaKey == *second.MediaKey {
+		t.Fatal("the replacement reused the key; a cache could still serve the old image")
+	}
+	if _, ok := store.objects[*first.MediaKey]; ok {
+		t.Error("the replaced image was left in the store")
+	}
+	if _, ok := store.objects[*second.MediaKey]; !ok {
+		t.Error("the replacement is not in the store")
+	}
+}
+
+func TestAttachMediaIsRefusedWhenUploadsAreNotConfigured(t *testing.T) {
+	repo := newRepoStub()
+	userID := uuid.New()
+	// No Media dependency: a deployment with no signing secret has decided not to accept images,
+	// which is a configuration rather than a fault, so it answers rather than erroring internally.
+	service := serviceFor(repo, sessionStub{userID: userID, cursor: 142})
+	entry, err := service.Write(context.Background(), userID, uuid.New(), WriteInput{BarIndex: 88, Note: text("n")})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if _, err := service.AttachMedia(context.Background(), userID, entry.ID, pngFixture(t)); !apperror.Is(err, "MEDIA_LINK_INVALID") {
+		t.Errorf("err = %v, want MEDIA_LINK_INVALID", err)
+	}
+}
+
+func TestSomeoneElsesEntryCannotBeGivenAnImage(t *testing.T) {
+	repo, store := newRepoStub(), newMediaStub()
+	owner, stranger := uuid.New(), uuid.New()
+	service := mediaServiceFor(repo, sessionStub{userID: owner, cursor: 142}, store)
+	entry, err := service.Write(context.Background(), owner, uuid.New(), WriteInput{BarIndex: 88, Note: text("mine")})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if _, err := service.AttachMedia(context.Background(), stranger, entry.ID, pngFixture(t)); !apperror.Is(err, "JOURNAL_NOT_FOUND") {
+		t.Errorf("err = %v, want JOURNAL_NOT_FOUND", err)
+	}
+	if len(store.objects) != 0 {
+		t.Errorf("%d objects stored for a stranger's upload", len(store.objects))
 	}
 }
