@@ -23,9 +23,9 @@ type Conventions struct {
 	QuoteCurrency string
 	TickSize      decimal.Decimal
 	// ContractSize is expressed in **units of the base asset**, not lots — one unit of EUR rather
-	// than a 100,000-unit standard lot. Position sizing in Sprint 04 depends on which of those it
-	// means, and that decision belongs with the margin model (review finding SP4-3) rather than
-	// being made here by default.
+	// than a 100,000-unit standard lot. Sprint 04's margin model settled on that reading (review
+	// finding SP4-3): notional is quantity x price x contract size, so reading a unit as a lot would
+	// inflate every margin requirement by a factor of 100,000 and the gate would refuse everything.
 	ContractSize decimal.Decimal
 }
 

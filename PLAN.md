@@ -196,10 +196,17 @@ Kafka.
 - Gate order, all rejections carrying a specific code, never a silent resize: stop present and on
   the correct side → risk-per-trade → minimum R:R → open-position cap → margin → daily drawdown.
 - A rejected order is **recorded**, not discarded: the discipline index needs the attempts.
-- Fill engine walks bars from the cursor; stop and target resolution is explicit about the
-  same-bar case (worst-case-first, documented and tested).
+- Margin is `notional ÷ leverage` against **equity, not balance**, so an unrealized loss shrinks what
+  the next order can size against: the gate refuses pyramiding into a loser rather than leaving the
+  journal to complain about it afterwards (`SP4-3`). Quantity is base-asset units, not lots.
+- Fill engine walks bars from the cursor; the same-bar cases are explicit and worst-case-first, both
+  for stop-versus-target on an open position and for a resting order whose bar covers its trigger and
+  its stop — that one fills and then stops (`SP4-5`). Documented and tested, not decided in code.
 - Equity snapshot per bar; MAE/MFE tracked per open trade.
-- Breaching the daily drawdown gate halts the session and emits `risk.gate_breached`.
+- Breaching the daily drawdown gate halts the session and emits `risk.gate_breached`. A **day** is a
+  market day derived from real bar timestamps server-side; the client is told how much room is left
+  and never when the window turns over, because a reset pattern with weekends in it identifies the
+  asset class (`SP4-1`, guarded by a leak test).
 
 **Sprint 05 — journal, drawings, and the reveal.**
 - Journal CRUD anchored to the bar the trader was looking at, not wall-clock time.

@@ -3,8 +3,9 @@
 > **This is a plan review, not a code review.** Sprint 04 has not been implemented: there is no
 > order intake, no fill engine and no gate in either repository. The `orders` and `trades` tables
 > exist (`migrations/000006_execution.up.sql`) and nothing writes to them. What follows reviews
-> `docs/requirements/sprint-04-execution-risk.md` as a specification, and flags the decisions that
-> need making before it starts rather than during it.
+> `docs/requirements/sprint-04-execution-risk.md` as a specification, and flagged the decisions that
+> needed making before it starts rather than during it. **All five have since been decided** — `SP4-2`
+> by removing the rewind from the product, the other four recorded here and in the sprint plan.
 
 **Reviewed:** `docs/requirements/sprint-04-execution-risk.md`, `sprint-04-execution-dock.md`
 (frontend), `migrations/000006_execution.up.sql`, register rows FR-EXEC-01..12, FR-TA-06, FR-UI-09,
@@ -28,21 +29,29 @@ assumption, with the reason stated — the alternative flatters every result. An
 in the schema, so "no entry without a stop" is a database guarantee rather than a validation rule
 somebody can bypass.
 
-Five things need deciding first. None is a flaw in the plan so much as a question it does not ask.
+Five things needed deciding first. None was a flaw in the plan so much as a question it did not ask.
 
-| | ID | Open question |
+**All five are now settled**, and each is recorded below with the decision and what it rules out. The
+sprint plan carries the same wording, because a decision that lives only in a review is one the
+implementer never reads.
+
+| | ID | Question, and what was decided |
 |---|---|---|
-| **High** | `SP4-1` | What is "daily" in replay time — and does answering it leak the asset class? |
+| ~~High~~ **DECIDED** | `SP4-1` | ~~What is "daily" in replay time?~~ — **a market day from the bar's real timestamp, computed server-side.** The client learns that a limit binds and how much room is left, never when the window turns over; a leak test holds the line |
 | ~~High~~ **DECIDED** | `SP4-2` | ~~Can a trader place an order while rewound?~~ — **the cursor is forward-only.** Backward stepping and `/seek` removed, the two indices collapsed to one; there is no rewound state for an order to land in |
-| Medium | `SP4-3` | The margin model behind `INSUFFICIENT_MARGIN` is unspecified |
-| Medium | `SP4-4` | Position sizing needs tick size, which is currently hardcoded for every instrument |
-| Low | `SP4-5` | Same-bar entry-and-stop for resting orders is unaddressed |
+| ~~Medium~~ **DECIDED** | `SP4-3` | ~~The margin model behind `INSUFFICIENT_MARGIN`~~ — **required margin is notional ÷ leverage; available equity includes unrealized PnL.** A losing position reduces what the next order can size against, so the gate refuses pyramiding |
+| ~~Medium~~ **FIXED** | `SP4-4` | ~~Sizing depends on tick size, which Sprint 02 hardcodes~~ — `BE-02-3` is fixed: `market.DeriveConventions` derives tick size and quote currency per asset class and symbol. The `ContractSize` units question it left behind is answered by `SP4-3` |
+| ~~Low~~ **DECIDED** | `SP4-5` | ~~Same-bar entry-and-stop for resting orders~~ — **fill, then stop.** The same adverse assumption as the stop-versus-target rule, one step earlier |
 
 ---
 
-## Open questions
+## The decisions
 
-### `SP4-1` · High · "Daily" drawdown has no defined meaning in a replay, and defining it may leak
+### `SP4-1` · ~~High~~ **DECIDED** · A day is a market day, and the client is never told where it ends
+
+**Decision: the server derives the boundary from real bar timestamps and reports only room
+remaining.** No timestamp, day ordinal, bar count to the boundary or reset countdown reaches the
+client, and a leak test over the order, position and risk response types asserts it.
 
 **Where:** §04.4, BR-05, and the `DAILY_DRAWDOWN_BREACHED` gate row.
 
@@ -61,11 +70,18 @@ Market day is clearly the intent. But it collides with BR-01, and that is the pa
 resets in 14 bars", a trader watching where the resets fall sees a two-day gap every five days in FX
 and never in crypto. That is a weekend, and a weekend narrows the instrument set considerably.
 
-**Decide before building.** The safe shape is that the server computes the boundary from real
-timestamps, enforces the halt, and the client is told only *that* a limit binds and how much room is
-left — never when the window turns over. Worth an explicit note in the sprint doc and a leak test in
-the same style as `feed/leak_test.go`, because this is precisely the kind of derived field that
-reaches a payload without anyone deciding it should.
+**Why a market day and not a bar count.** A fixed bar count would have dodged the leak entirely,
+which is its only real argument. It is also not a day: the prop-firm persona would be practising a
+rule they will not meet at a desk, which is most of what they came for. So the definition was never
+really in doubt, and the leak is the part the decision has to carry into the code.
+
+**What it costs.** A trader cannot see a reset coming, which is a real loss of affordance and
+arguably more realistic than the alternative: a live desk does not show you a countdown to your own
+risk limit resetting either. `room_remaining_pct` plus a halted flag is the whole contract.
+
+The guard is a leak test in the style of `feed/leak_test.go` rather than a code-review convention,
+because this is exactly the kind of derived field that reaches a payload without anyone deciding it
+should — a progress meter needs a denominator and the denominator is the boundary.
 
 ### `SP4-2` · ~~High~~ **DECIDED** · The cursor is forward-only
 
@@ -93,7 +109,11 @@ than being left in place "in case".
 look at. Everything already stepped past stays readable and on the chart; scrolling back over your
 own history is ordinary charting and is unaffected.
 
-### `SP4-3` · Medium · `INSUFFICIENT_MARGIN` has no model behind it
+### `SP4-3` · ~~Medium~~ **DECIDED** · Margin is notional ÷ leverage, against equity not balance
+
+**Decision: required margin is `quantity × price × contract_size ÷ leverage`; available equity is
+balance plus unrealized PnL less margin already committed.** `ContractSize` stays 1 unit of the base
+asset. `Leverage` keeps its default of `1`, so a new account is cash-only until the trader opts in.
 
 **Where:** gate row 9, "Equity supports the position".
 
@@ -105,10 +125,24 @@ equity before the next order is sized?
 That last one is not a detail — it decides whether a trader can pyramid into a losing position, and
 that is exactly the behaviour the discipline index in Sprint 06 will want to measure.
 
-**Fix.** One paragraph in §04.2 defining available equity, required margin, and whether unrealized
-PnL counts. It is a product decision, not an implementation one, which is why it belongs in the plan.
+**The third question is the one that mattered, and it is answered "yes, unrealized PnL counts".** A
+gate that sizes against balance lets a trader keep adding to a position that is deep underwater,
+because the paper loss never reaches the check. Sizing against equity means the account runs out of
+margin by itself — the simulator enforces the lesson instead of the journal delivering it as a
+scolding three screens later.
 
-### `SP4-4` · Medium · Sizing depends on tick size, which Sprint 02 hardcodes
+Per-asset-class initial margin was the realistic alternative and was rejected for now, not
+forgotten: it needs a per-contract margin table the reference data does not have, and it substitutes
+for the divisor later without touching the gate's shape or its error code. Recorded in §04.2b of the
+sprint plan, with `04-AC-11` asserting the pyramid case is refused.
+
+### `SP4-4` · ~~Medium~~ **FIXED** · Tick size is derived, and the units question moved to `SP4-3`
+
+**Resolution: `BE-02-3` is fixed.** `market.DeriveConventions` derives tick size and quote currency
+from the asset class and symbol — 0.001 against the yen, 0.01 for an equity or a USD-quoted crypto
+major, the five-decimal convention elsewhere — with property tests and a per-run override. What this
+finding left open was whether `ContractSize` means units or lots, and that is decided in `SP4-3`:
+units of the base asset.
 
 **Where:** gate rows 5 and 6; `cmd/loader/main.go:74-75`; review finding `BE-02-3`.
 
@@ -120,11 +154,13 @@ For EURUSD that is right. For USDJPY (0.001), an equity (0.01) or BTC it is wron
 is the dangerous kind: risk-per-trade will compute to a plausible-looking number that is off by a
 factor of a hundred.
 
-**Fix `BE-02-3` first.** It is a small change in Sprint 02's loader and it is a prerequisite here,
-not a parallel concern. It is scoped into Sprint 08 §08.1 — if Sprint 08 runs after Sprint 04, pull
-that one item forward.
+These are still *defaults* rather than reference data — a real venue's tick table is per-contract —
+but they are no longer one FX convention applied to an equity, and the failure mode this finding
+named (a plausible-looking risk number off by a factor of a hundred) is gone.
 
-### `SP4-5` · Low · Same-bar entry-and-stop for resting orders
+### `SP4-5` · ~~Low~~ **DECIDED** · A resting order that sees both its trigger and its stop fills, then stops
+
+**Decision: fill, then stop — a closed trade at −1R, not an unfilled order.**
 
 **Where:** §04.3.
 
@@ -132,8 +168,10 @@ The plan handles the same-bar stop-versus-target case carefully. It does not han
 case one step earlier: a limit order rests, and a single bar's range covers both the limit price and
 the stop. Did the order fill and then stop out within that bar, or not fill at all?
 
-The consistent answer is the same conservative one — assume the adverse sequence, fill then stop —
-but it should be written down beside the other rule rather than decided in code.
+The answer is the same conservative one the stop-versus-target rule already takes: assume the adverse
+sequence. It is Low severity because it is rare and the answer is obvious — but *unwritten* means
+decided by whatever order the branches happen to sit in, and then changed silently by the next person
+who reorganises the fill loop. It is now beside the other rule in §04.3, with `04-AC-13` asserting it.
 
 ---
 
@@ -148,13 +186,16 @@ but it should be written down beside the other rule rather than decided in code.
 - **Ordered, individually-coded gate checks.** The order matters for the message the trader sees:
   telling someone their R:R is too low when they have not set a stop at all would be noise.
 
-## Dependencies to settle before starting
+## Dependencies — all cleared
 
-1. `BE-02-3` (tick size) — blocking, per `SP4-4`.
-2. `BE-03-1` (the idle sweeper) — not blocking, but Sprint 04 makes an abandoned session more
-   expensive, because it will hold open positions and a drawdown state rather than just a cursor.
+1. `BE-02-3` (tick size) — **fixed**, per `SP4-4`. This was the one blocking dependency.
+2. `BE-03-1` (the idle sweeper) — **done**, running in `cmd/worker`. It was never blocking, but
+   Sprint 04 makes an abandoned session more expensive, because it will hold open positions and a
+   drawdown state rather than just a cursor.
 3. `BE-03-3` — NFR-03's deterministic session hash belongs to this sprint; **already re-dated** in
-   the register. Make the `(seed, bar_index, order_sequence)` PRNG contract part of the sprint's
+   the register, and the `(seed, bar_index, order_sequence)` PRNG contract is now in the sprint's
    Definition of Done.
-4. `SP4-2` — **settled**: the cursor is forward-only, shipped ahead of the sprint. Three decisions
-   remain (`SP4-1`, `SP4-3`, `SP4-5`).
+4. All five plan decisions — **settled**, and written into the sprint plan rather than left here.
+
+**Nothing is outstanding against this plan.** The remaining pre-Sprint-04 item in the project is
+unrelated to execution: `BE-01-3` / FR-AUTH-04, the account settings screen.

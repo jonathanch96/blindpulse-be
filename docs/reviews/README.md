@@ -12,7 +12,7 @@ documents; they live here because the product-level sprint plans do.
 | [sprint-01-identity-accounts.md](sprint-01-identity-accounts.md) | 01 — Identity, accounts, reset trees | Code review | Ships what it claims; the unguarded front door is **fixed** |
 | [sprint-02-market-data.md](sprint-02-market-data.md) | 02 — Market data and blinded feeds | Code review | Blinding is sound; both ingest defects **fixed** |
 | [sprint-03-replay-engine.md](sprint-03-replay-engine.md) | 03 — Replay engine and terminal | Code review | The strongest sprint; the account lockout is **fixed**, one architectural debt remains |
-| [sprint-04-execution-risk.md](sprint-04-execution-risk.md) | 04 — Execution and the risk gate | **Plan review — not yet built** | Plan is sound; four decisions need making before it starts |
+| [sprint-04-execution-risk.md](sprint-04-execution-risk.md) | 04 — Execution and the risk gate | **Plan review — not yet built** | Plan is sound; all five decisions now **settled** and written into the plan |
 
 ## Status
 
