@@ -1,15 +1,33 @@
 # Sprint 05 — Journal, drawings and the mystery reveal (backend)
 
-**Status:** PLANNED · **Estimate:** 8–10 dev-days
+**Status:** **DONE except journal media (05.5)** · **Estimate:** 8–10 dev-days
 **Requirements:** FR-JOURNAL-01/02/06, FR-REVEAL-01..03, FR-TA-11, BR-08
 **PRD:** §3.2, §3.4
-**Depends on:** Sprint 04 · **Blocks:** Sprint 06
+**Depends on:** Sprint 03 (fully). Sprint 04 for *content*, not for function — see below · **Blocks:** Sprint 06
 
 ## Goal
 
 Close the loop: capture what the trader was thinking while they could not see the answer, then give
 them the answer. The reveal is the moment the product pays off, and it is one-way — which makes
 getting its preconditions right more important than its presentation.
+
+## What this sprint can and cannot know
+
+Sprint 04 is decided and **not built**, so nothing has been traded in any session. This sprint is
+built anyway, because none of it is blocked: a journal anchors to a bar, a drawing anchors to a bar,
+and a reveal needs the feed and the session, all of which exist.
+
+What it means is that two numbers are structurally correct and empty until execution lands:
+
+- `strategy_return_pct` is the session's realized return, which is **0** when there are no fills, so
+  `alpha_pct` comes out as the negative of the benchmark. That is the right answer for a session in
+  which the trader watched and did not act, and it is why the reveal states the benchmark's
+  definition rather than presenting alpha as a verdict.
+- `trade_id` on a journal entry is always null, and the frontend's KPI strip and trade log have no
+  rows to show.
+
+Neither is stubbed and neither needs revisiting when Sprint 04 lands: the same computation picks up
+real fills the day they exist. The reveal's headline comparison simply is not interesting yet.
 
 ## Tasks
 
@@ -66,11 +84,18 @@ After a reveal, and only then, the session's bar responses may carry real timest
 symbol. This is a **separate response type**, not a conditional field on the blinded one — a flag
 that switches a field on is one refactor away from switching it on too early.
 
-### 05.5 Journal media (FR-JOURNAL-06)
+### 05.5 Journal media (FR-JOURNAL-06) — **NOT BUILT**
 - `POST /sessions/{id}/journal/{jid}/media` — image upload, size and MIME allow-list.
 - **EXIF stripped on ingest.** A screenshot can carry a capture timestamp, which would date the
   session from inside the trader's own upload.
 - Signed, expiring URLs; local filesystem or S3/MinIO per config.
+
+This is the one part of the sprint that is not built. `journal_entries.media_key` exists and nothing
+writes it; the journal response carries a `media_url` that is always null. It is called out rather
+than quietly folded in because it is the only task here needing infrastructure the service does not
+otherwise have — object storage, a signing key, an image decoder — and because the EXIF rule is a
+blinding guard in its own right: a trader's screenshot can date the window from inside their own
+upload, which nothing else in this sprint has to defend against.
 
 ### 05.6 Events
 `journal.written`, `session.revealed`.
@@ -95,9 +120,33 @@ that switches a field on is one refactor away from switching it on too early.
   post-reveal responses use the separate disclosed type.
 - **Integration:** EXIF stripping against real image fixtures.
 
+## What the build changed about the plan
+
+Three things the plan did not anticipate, recorded because each is a decision rather than a detail:
+
+- **Journal revisions needed a table.** 05-AC-9 asks that an edited entry's original stay
+  retrievable, and `version` alone cannot do that — it records *that* an edit happened, not what was
+  replaced. `journal_entry_revisions` (migration `000013`) files the superseded content in the same
+  transaction as the edit.
+- **The drawing `kind` CHECK had drifted, and moved out of the database.** It allowed seven kinds
+  while the terminal ships eleven, so a ray, a polyline or a brush stroke could not have been saved
+  at all. The plan's own reason for opaque payloads is "so the toolkit can add a tool without a
+  migration", and a CHECK listing tools is a migration per tool — it is now a shape constraint, with
+  the vocabulary in the domain where adding a tool is a line in a list.
+- **The macro annotation had no source.** The reveal promises notes and tags; `blinded_feeds` only
+  carried `macro_label`. `macro_notes` and `macro_tags` were added to the feed, with `-macro-notes`
+  and `-macro-tags` flags on the loader, so a curated window can carry them.
+
 ## Definition of done
 All criteria met; a trader can run a session, journal through it, close it, reveal it, and see a
 benchmark comparison that reconciles with a manual calculation.
+
+**Met, less 05.5.** Verified live end to end: a note past the cursor is `INVALID_CURSOR`, an edit
+files its revision and leaves unmentioned fields alone, a drawing carrying a date is refused with the
+reason stated, a reveal on an open session is `REVEAL_LOCKED` and a second one is
+`ALREADY_REVEALED`, and the stored benchmark matched a hand recomputation from the disclosed series
+to four decimal places (5.6160 against 5.616). The blinded bars endpoint still carries no timestamp
+and no symbol after the same session has been revealed.
 
 ## Risks
 

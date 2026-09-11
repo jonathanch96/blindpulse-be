@@ -17,21 +17,31 @@ import (
 	"github.com/jblabs/blindpulse-be/pkg/response"
 	accountcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/account"
 	authcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/auth"
+	drawingcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/drawing"
 	feedcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/feed"
+	journalcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/journal"
+	revealcontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/reveal"
 	sessioncontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/session"
 	usercontroller "github.com/jblabs/blindpulse-be/services/blindpulse/v1/controllers/user"
 	appdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db"
 	ledgerdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/account_ledger_entries"
 	accountsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/accounts"
 	feedsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/blinded_feeds"
+	drawingsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/chart_drawings"
 	instrumentsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/instruments"
+	journaldb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/journal_entries"
 	barsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/market_bars"
 	outboxdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/outbox_events"
 	refreshtokens "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/refresh_tokens"
 	sessionsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/replay_sessions"
+	revealsdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/session_reveals"
+	tradesdb "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/trades"
 	users "github.com/jblabs/blindpulse-be/services/blindpulse/v1/db/blindpulse/users"
 	accountdomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/account"
+	drawingdomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/drawing"
 	feeddomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/feed"
+	journaldomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/journal"
+	revealdomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/reveal"
 	sessiondomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/session"
 	userdomain "github.com/jblabs/blindpulse-be/services/blindpulse/v1/domain/user"
 	"github.com/shopspring/decimal"
@@ -53,6 +63,9 @@ type Service struct {
 	accounts          accountcontroller.Controller
 	feeds             feedcontroller.Controller
 	sessions          sessioncontroller.Controller
+	journal           journalcontroller.Controller
+	drawings          drawingcontroller.Controller
+	reveals           revealcontroller.Controller
 	issuer            *appjwt.Issuer
 }
 
@@ -122,6 +135,36 @@ func NewService(deps Dependencies) *Service {
 		// changed would make every renewal look like a different replica taking the lease.
 		Holder: instanceID(),
 	})
+	// The annotation slices. Both reach a session through a narrow reader rather than the session
+	// service: they need to know who owns it and where its cursor is, and nothing else. Wiring the
+	// whole session service in would make a journal entry depend on the replay clock.
+	sessionRepo := sessionsdb.New(deps.DB)
+	journalService := journaldomain.NewService(journaldomain.Dependencies{
+		Repo:     journaldb.New(deps.DB),
+		Sessions: journaldomain.NewSessionReader(sessionRepo),
+		Outbox:   outboxdb.New(deps.DB),
+		UOW:      appdb.NewGormUnitOfWork(deps.DB),
+		Topic:    deps.Cfg.Kafka.Topic,
+	})
+	drawingService := drawingdomain.NewService(drawingdomain.Dependencies{
+		Repo:     drawingsdb.New(deps.DB),
+		Sessions: drawingdomain.NewSessionReader(sessionRepo),
+	})
+	revealService := revealdomain.NewService(revealdomain.Dependencies{
+		Repo:        revealsdb.New(deps.DB),
+		Sessions:    revealdomain.NewSessionReader(sessionRepo),
+		Feeds:       feedService,
+		Instruments: instrumentRepo,
+		// Real bars, not the feed's blinded projection. The benchmark is a percentage return, and
+		// the blinding map deliberately does not preserve those — computing it on the normalized
+		// series would produce a confident number about a different asset.
+		Bars:     barsdb.New(deps.DB),
+		Trades:   tradesdb.New(deps.DB),
+		Accounts: accountsdb.New(deps.DB),
+		Outbox:   outboxdb.New(deps.DB),
+		UOW:      appdb.NewGormUnitOfWork(deps.DB),
+		Topic:    deps.Cfg.Kafka.Topic,
+	})
 	return &Service{
 		// Counted in Redis where it is available, so the limit holds across replicas rather than
 		// being multiplied by however many are running. Without Redis both fall back to the
@@ -135,6 +178,9 @@ func NewService(deps Dependencies) *Service {
 		accounts: accountcontroller.NewController(accountService),
 		feeds:    feedcontroller.NewController(feedService, instrumentRepo),
 		sessions: sessioncontroller.NewController(sessionService, feedService, deps.Cfg.CORS.AllowedOrigins),
+		journal:  journalcontroller.NewController(journalService),
+		drawings: drawingcontroller.NewController(drawingService),
+		reveals:  revealcontroller.NewController(revealService),
 		issuer:   issuer,
 	}
 }
@@ -153,6 +199,9 @@ func (s *Service) RegisterRoutes(group *gin.RouterGroup) {
 	s.accounts.RegisterRoutes(protected)
 	s.feeds.RegisterRoutes(protected)
 	s.sessions.RegisterRoutes(protected)
+	s.journal.RegisterRoutes(protected)
+	s.drawings.RegisterRoutes(protected)
+	s.reveals.RegisterRoutes(protected)
 	// Outside the bearer middleware on purpose: the socket authenticates with a single-use ticket
 	// minted by an authenticated caller, because a browser cannot set headers on a WS handshake.
 	s.sessions.RegisterStreamRoutes(group)

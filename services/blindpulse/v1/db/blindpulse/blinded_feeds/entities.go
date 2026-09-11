@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 )
 
@@ -21,6 +22,8 @@ type BlindedFeed struct {
 	VolumeScale        decimal.Decimal  `gorm:"column:volume_scale;type:numeric"`
 	Difficulty         string           `gorm:"column:difficulty"`
 	MacroLabel         *string          `gorm:"column:macro_label"`
+	MacroNotes         *string          `gorm:"column:macro_notes"`
+	MacroTags          pq.StringArray   `gorm:"column:macro_tags;type:text[]"`
 	IsPublished        bool             `gorm:"column:is_published"`
 	RealizedVolatility *decimal.Decimal `gorm:"column:realized_volatility;type:numeric"`
 	TrendPersistence   *decimal.Decimal `gorm:"column:trend_persistence;type:numeric"`

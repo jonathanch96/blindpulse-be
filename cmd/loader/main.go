@@ -47,6 +47,8 @@ func main() {
 		barCount   = flag.Int("bars", 800, "bars in the feed window")
 		warmup     = flag.Int("warmup", 200, "lookback bars shown before the cursor moves")
 		macroLabel = flag.String("macro", "", "macro label, withheld until the reveal")
+		macroNotes = flag.String("macro-notes", "", "macro narrative shown after the reveal")
+		macroTags  = flag.String("macro-tags", "", "comma-separated macro tags, e.g. SVB_COLLAPSE,DXY_DUMP")
 		tickSize   = flag.String("tick", "", "tick size; derived from the asset class and symbol when empty")
 		quote      = flag.String("quote", "", "quote currency; derived from the symbol when empty")
 		publish    = flag.Bool("publish", true, "publish the feed to the catalogue")
@@ -129,7 +131,8 @@ func main() {
 		feed, err := service.Build(ctx, feeddomain.BuildInput{
 			InstrumentID: instrument.ID, Timeframe: target,
 			WindowStart: time.Unix(start, 0).UTC(), WindowEnd: time.Unix(last, 0).UTC(),
-			WarmupBars: *warmup, MacroLabel: *macroLabel, Publish: *publish,
+			WarmupBars: *warmup, MacroLabel: *macroLabel, MacroNotes: *macroNotes,
+			MacroTags: splitTags(*macroTags), Publish: *publish,
 		})
 		if err != nil {
 			fatal(err)
@@ -323,4 +326,25 @@ func looksNumeric(value string) bool {
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+// splitTags turns "SVB_COLLAPSE, dxy_dump" into ["#SVB_COLLAPSE", "#DXY_DUMP"]. The hash and the
+// case are added here rather than typed, so two curators cannot produce "#SVB_COLLAPSE" and
+// "svb_collapse" as two different tags for one event.
+func splitTags(value string) []string {
+	tags := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	for _, part := range strings.Split(value, ",") {
+		tag := strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(part), "#")))
+		if tag == "" {
+			continue
+		}
+		tag = "#" + tag
+		if _, duplicate := seen[tag]; duplicate {
+			continue
+		}
+		seen[tag] = struct{}{}
+		tags = append(tags, tag)
+	}
+	return tags
 }

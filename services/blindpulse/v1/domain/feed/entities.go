@@ -31,6 +31,8 @@ type BuildInput struct {
 	WindowEnd    time.Time
 	WarmupBars   int
 	MacroLabel   string
+	MacroNotes   string
+	MacroTags    []string
 	Publish      bool
 }
 

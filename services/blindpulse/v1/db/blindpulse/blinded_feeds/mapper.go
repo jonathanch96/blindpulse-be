@@ -3,6 +3,7 @@ package blinded_feeds
 import (
 	domainfeed "github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/feed"
 	"github.com/jblabs/blindpulse-be/services/blindpulse/v1/entities/domain/market"
+	"github.com/lib/pq"
 )
 
 func fromDomain(entity domainfeed.Feed) BlindedFeed {
@@ -12,7 +13,8 @@ func fromDomain(entity domainfeed.Feed) BlindedFeed {
 		WarmupBars: entity.WarmupBars, TotalBars: entity.TotalBars,
 		PriceScale: entity.Normalization.Scale, PriceOffset: entity.Normalization.Offset,
 		VolumeScale: entity.Normalization.VolumeScale,
-		Difficulty:  string(entity.Difficulty), MacroLabel: entity.MacroLabel, IsPublished: entity.IsPublished,
+		Difficulty:  string(entity.Difficulty), MacroLabel: entity.MacroLabel,
+		MacroNotes: entity.MacroNotes, MacroTags: pq.StringArray(entity.MacroTags), IsPublished: entity.IsPublished,
 		RealizedVolatility: entity.RealizedVolatility, TrendPersistence: entity.TrendPersistence,
 		BuilderVersion: entity.BuilderVersion, BuiltAt: entity.BuiltAt,
 		CreatedAt: entity.CreatedAt, UpdatedAt: entity.UpdatedAt, Version: entity.Version,
@@ -29,6 +31,7 @@ func toDomain(model BlindedFeed) domainfeed.Feed {
 			Offset: model.PriceOffset, Scale: model.PriceScale, VolumeScale: model.VolumeScale,
 		},
 		Difficulty: domainfeed.Difficulty(model.Difficulty), MacroLabel: model.MacroLabel,
+		MacroNotes: model.MacroNotes, MacroTags: macroTags(model.MacroTags),
 		IsPublished:        model.IsPublished,
 		RealizedVolatility: model.RealizedVolatility, TrendPersistence: model.TrendPersistence,
 		BuilderVersion: model.BuilderVersion, BuiltAt: model.BuiltAt,
@@ -42,4 +45,13 @@ func toDomains(models []BlindedFeed) []domainfeed.Feed {
 		feeds = append(feeds, toDomain(model))
 	}
 	return feeds
+}
+
+// macroTags never hands back a nil slice: the reveal response promises a list, and a nil one
+// serializes as null where a client maps over it.
+func macroTags(values pq.StringArray) []string {
+	if values == nil {
+		return []string{}
+	}
+	return []string(values)
 }

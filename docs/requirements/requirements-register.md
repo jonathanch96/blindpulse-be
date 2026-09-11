@@ -26,7 +26,7 @@ the browser enforces is a rule a `curl` command ignores.
 | BR-05 | Breaching the account's max daily drawdown halts trading for the session | §3.3 | BE | 04 | PLANNED — "daily" is a market day from real bar timestamps, computed server-side and never exposed (`SP4-1`) |
 | BR-06 | A reset never overwrites or deletes history; it seals the iteration and forks a child | §3.5 | BE | 01 | DONE |
 | BR-07 | Sealed iterations are read-only and provable via a hash chain | §3.5, §6.3 | BE | 01 | DONE |
-| BR-08 | A session may be revealed exactly once, and only after it is closed | §3.4 | BE | 05 | PLANNED |
+| BR-08 | A session may be revealed exactly once, and only after it is closed | §3.4 | BE | 05 | **DONE (BE)** — three ordered preconditions, each with its own code; the primary key on `session_reveals` and a `revealed_at IS NULL` clause make it idempotent at the database too |
 | BR-09 | A rejected order is recorded, not discarded — the discipline index needs the attempts | §3.4 | BE | 04 | PLANNED |
 | BR-10 | Replay is deterministic: same feed and seed produce identical fills | §6.3 | BE | 03 | PLANNED |
 | BR-11 | Exactly one live iteration per account tree, and one open session per account | §3.5 | BE | 01 / 03A | DONE |
@@ -85,7 +85,7 @@ the browser enforces is a rule a `curl` command ignores.
 | FR-TA-08 | Dual EMAs (20/50/200) and volume profile | FE | 03D | PARTIAL — EMA 20/50/200 and the volume pane done; the by-price volume *profile* is not built |
 | FR-TA-09 | MACD momentum histogram | FE | 06 | PLANNED |
 | FR-TA-10 | Scale modes: `LOG`, `AUTO`, `%` | FE | 03D | **DONE** |
-| FR-TA-11 | Drawings persist per session and reload with it | BOTH | 05 | PLANNED |
+| FR-TA-11 | Drawings persist per session and reload with it | BOTH | 05 | **DONE (BE)** — opaque per-kind payloads, anchored to a released bar, refused if they carry a date; the tool vocabulary moved out of the database CHECK, which had drifted to seven of the terminal's eleven tools |
 
 ### 2.5 Execution and risk — `FR-EXEC` (PRD §3.3)
 
@@ -122,15 +122,15 @@ the browser enforces is a rule a `curl` command ignores.
 
 | ID | Requirement | Owner | Sprint | Status |
 |---|---|---|---|---|
-| FR-JOURNAL-01 | Per-trade journal entries anchored to the bar being viewed | BOTH | 05 | PLANNED |
-| FR-JOURNAL-02 | Emotion, conviction and free tags on an entry | BOTH | 05 | PLANNED |
+| FR-JOURNAL-01 | Per-trade journal entries anchored to the bar being viewed | BOTH | 05 | **DONE (BE)** — bar index bounded by the cursor; edits file the superseded content as a revision so the discipline projector reads what the trader thought at the time |
+| FR-JOURNAL-02 | Emotion, conviction and free tags on an entry | BOTH | 05 | **DONE (BE)** — tags trimmed, lower-cased and de-duplicated, because the post-mortem groups by them |
 | FR-JOURNAL-03 | Candle-by-candle trade log with entry/exit, duration, PnL and R | FE | 05 | PLANNED |
 | FR-JOURNAL-04 | Session post-mortem free text with prompt chips | FE | 05 | PLANNED |
 | FR-JOURNAL-05 | Execution footprint chart marking fills with their R-multiples | FE | 05 | PLANNED |
-| FR-JOURNAL-06 | Journal media upload with EXIF stripped and signed URLs | BOTH | 05 | PLANNED |
-| FR-REVEAL-01 | Reveal the real ticker, timeframe and date window (BR-08) | BOTH | 05 | PLANNED |
-| FR-REVEAL-02 | Macro driver annotation explaining the period | BOTH | 05 | PLANNED |
-| FR-REVEAL-03 | Benchmark alpha vs buy-and-hold over the same window | BE | 05 | PLANNED |
+| FR-JOURNAL-06 | Journal media upload with EXIF stripped and signed URLs | BOTH | 05 | PLANNED — the one part of Sprint 05 not built; `journal_entries.media_key` exists and nothing writes it |
+| FR-REVEAL-01 | Reveal the real ticker, timeframe and date window (BR-08) | BOTH | 05 | **DONE (BE)** — frozen at reveal time into `session_reveals`, served by a response type separate from the blinded one rather than a conditional field |
+| FR-REVEAL-02 | Macro driver annotation explaining the period | BOTH | 05 | **DONE (BE)** — `macro_notes` and `macro_tags` added to the feed in migration `000013`; the reveal had nowhere to read them from before |
+| FR-REVEAL-03 | Benchmark alpha vs buy-and-hold over the same window | BE | 05 | **DONE** — computed on real prices (the affine blinding does not preserve percentage returns), entering at the first *tradeable* bar; verified live against a hand recomputation to 4dp |
 | FR-REVEAL-04 | Behavioral Discipline Index 0–100 with its components | BE | 06 | PLANNED |
 | FR-REVEAL-05 | Behaviour tagging: FOMO entry, revenge trade, early cut, moved stop | BE | 06 | PLANNED |
 
@@ -188,8 +188,8 @@ the browser enforces is a rule a `curl` command ignores.
 | 01 | Identity, accounts and reset trees | FR-AUTH-01..04, FR-ACCT-01..05, FR-UI-01/02/05/07, BR-06/07/11, NFR-07 | DONE — the account settings screen closed the last gap (FR-AUTH-04) |
 | 02 | Market data and blinded feeds | FR-FEED-01..07, BR-01, NFR-05 | DONE — the archive and three ingest defects move to Sprint 08 |
 | 03 | Replay session engine and terminal | FR-REPLAY-01..08, FR-TA-01..05/07/08/10, FR-UI-03/08/12, BR-02/10, NFR-01/02/04 | DONE — 03A–03F all delivered; NFR-01's p99-under-load histogram is the one item still owed |
-| 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09, **NFR-03** | PLANNED — all five plan decisions settled and written into the plan; no open dependencies |
-| 05 | Journal, drawings and the mystery reveal | FR-JOURNAL-01..06, FR-REVEAL-01..03, FR-TA-11, FR-UI-04/10, BR-08 | PLANNED |
+| 04 | Execution and the risk gate | FR-EXEC-01..12, FR-TA-06, FR-UI-09, BR-03/04/05/09, **NFR-03** | PLANNED — **decided, not built.** All five plan decisions settled and no open dependencies; no order intake, gate, fill engine or dock exists yet. See the plan's *What is missing* |
+| 05 | Journal, drawings and the mystery reveal | FR-JOURNAL-01..06, FR-REVEAL-01..03, FR-TA-11, FR-UI-04/10, BR-08 | **Backend DONE except media (FR-JOURNAL-06)**; frontend in progress |
 | 06 | Analytics, discipline index and cross-iteration | FR-ANALYTICS-01..09, FR-REVEAL-04/05, FR-ACCT-06..09, FR-TA-09, FR-UI-06/11 | PLANNED |
 | 07 | Institutional access and hardening | FR-AUTH-05..08 | PLANNED |
 | 08 | Market data archive and ingestion pipeline | FR-FEED-01/02, BR-01, NFR-05 | PLANNED — parallelisable with 04–06; owns the outstanding half of FR-FEED-02 |

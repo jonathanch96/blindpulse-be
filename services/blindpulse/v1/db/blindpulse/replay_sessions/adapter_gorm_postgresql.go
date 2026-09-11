@@ -168,3 +168,22 @@ func isUniqueViolation(err error) bool {
 	}
 	return strings.Contains(err.Error(), "23505")
 }
+
+// MarkRevealed stamps the session's revealed_at.
+//
+// The WHERE clause includes `revealed_at IS NULL`, so a second reveal writes nothing rather than
+// overwriting the first one's timestamp. That makes the flag idempotent at the database rather than
+// only in the service — and the reveal is the one action in the product with no undo, so the
+// belt-and-braces is worth the clause.
+func (a *adapterGormPostgresql) MarkRevealed(ctx context.Context, id uuid.UUID, at time.Time) error {
+	result := appdb.FromContext(ctx, a.db).WithContext(ctx).Model(&ReplaySession{}).
+		Where("id = ? AND revealed_at IS NULL", id).
+		Updates(map[string]any{"revealed_at": at, "updated_at": at})
+	if result.Error != nil {
+		return apperror.Wrap(result.Error, "INTERNAL_ERROR")
+	}
+	if result.RowsAffected == 0 {
+		return apperror.New("ALREADY_REVEALED")
+	}
+	return nil
+}

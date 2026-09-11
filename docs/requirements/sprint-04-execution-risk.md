@@ -1,6 +1,6 @@
 # Sprint 04 — Execution and the risk gate (backend)
 
-**Status:** PLANNED · **Estimate:** 10–12 dev-days · **Plan reviewed:** [docs/reviews/sprint-04-execution-risk.md](../reviews/sprint-04-execution-risk.md) — all five decisions settled; the plan is ready to build
+**Status:** PLANNED — **decided, not built** (see *What is missing*, below) · **Estimate:** 10–12 dev-days · **Plan reviewed:** [docs/reviews/sprint-04-execution-risk.md](../reviews/sprint-04-execution-risk.md) — all five decisions settled; the plan is ready to build
 **Requirements:** FR-EXEC-01..05, FR-EXEC-07..09, FR-EXEC-11, BR-03, BR-04, BR-05, BR-09
 **PRD:** §3.3
 **Depends on:** Sprint 03 · **Blocks:** Sprints 05, 06
@@ -9,6 +9,36 @@
 
 Let the trader act, and make the account's own rules the thing that stops them. The gate is the
 product's discipline mechanism; if it lives anywhere but the server it is advice, not a rule.
+
+## What is missing
+
+**None of this sprint is implemented.** The five plan decisions are settled and the dependencies are
+cleared, so what remains is the building. Recording it plainly because "PLANNED" next to a plan this
+detailed reads, at a glance, like something that got done.
+
+The `orders`, `trades` and `equity_snapshots` tables exist (`migrations/000006_execution.up.sql`)
+and **nothing writes to them**. Specifically absent, in both repositories:
+
+| | Missing |
+|---|---|
+| 04.1 | Order intake, bracket `PATCH`, cancel, position close / breakeven / close-all, and the read endpoints |
+| 04.2 | The ten-row gate, in order, each with its own code — the product's discipline mechanism |
+| 04.2b | The margin maths behind `INSUFFICIENT_MARGIN` (decided in this document, not written) |
+| 04.3 | The fill engine: spread, seeded slippage, resting orders, gaps, the two same-bar rules |
+| 04.4 | The daily drawdown halt, its market-day boundary, and the leak test that keeps the boundary off the wire |
+| 04.5 | `trade` ledger entries and all six events |
+| — | NFR-03's `(seed, bar_index, order_sequence)` PRNG contract and its replay-determinism test |
+| FE | The whole execution dock: order ticket, compliance panel, on-chart brackets, position actions, tables, shortcuts, mobile slip |
+
+**What this costs the sprints after it.** A session can be started, stepped, journalled, closed and
+revealed — but nothing can be *traded* in it. So every number downstream that comes from a fill is
+absent rather than wrong: Sprint 05's `strategy_return_pct` is 0 for every session, which makes
+`alpha_pct` the negative of the benchmark, and a journal entry's `trade_id` is always null. Those
+are arithmetically correct for a session in which nobody traded, and they are also uninformative.
+Sprint 06's discipline index has nothing to measure at all.
+
+Nothing downstream is *blocked* by this, which is why Sprint 05 proceeds — but the reveal's headline
+comparison does not become meaningful until this sprint lands.
 
 ## Tasks
 

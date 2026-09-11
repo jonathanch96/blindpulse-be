@@ -122,8 +122,14 @@ type Feed struct {
 	TotalBars     int
 	Normalization Normalization
 	Difficulty    Difficulty
-	MacroLabel    *string
-	IsPublished   bool
+	// The macro annotation, withheld until the reveal exactly as the instrument is. MacroLabel is
+	// the headline ("SVB Contagion"); MacroNotes is the narrative the trader reads afterwards and
+	// MacroTags are what the journal groups sessions by. None of the three crosses a pre-reveal
+	// response type — feedresponse has no field for any of them, and the leak test says so.
+	MacroLabel  *string
+	MacroNotes  *string
+	MacroTags   []string
+	IsPublished bool
 
 	RealizedVolatility *decimal.Decimal
 	TrendPersistence   *decimal.Decimal

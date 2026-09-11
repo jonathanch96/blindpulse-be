@@ -93,6 +93,8 @@ func (s *service) Build(ctx context.Context, in BuildInput) (*domainfeed.Feed, e
 		Normalization:      normalization,
 		Difficulty:         difficultyFor(volatility, persistence),
 		MacroLabel:         trimmedOrNil(in.MacroLabel),
+		MacroNotes:         trimmedOrNil(in.MacroNotes),
+		MacroTags:          in.MacroTags,
 		IsPublished:        in.Publish,
 		RealizedVolatility: &volatility, TrendPersistence: &persistence,
 		BuilderVersion: BuilderVersion, BuiltAt: s.deps.Clock(),
