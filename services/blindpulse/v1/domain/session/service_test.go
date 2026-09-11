@@ -52,6 +52,21 @@ func (r *sessionRepoStub) GetByID(_ context.Context, id uuid.UUID) (*domainsessi
 	return &copied, nil
 }
 
+func (r *sessionRepoStub) ListFinishedByUserID(_ context.Context, userID uuid.UUID, limit int) ([]domainsession.Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	finished := make([]domainsession.Session, 0)
+	for _, entity := range r.rows {
+		if entity.UserID == userID && !entity.Status.Live() {
+			finished = append(finished, *entity)
+		}
+	}
+	if limit > 0 && len(finished) > limit {
+		finished = finished[:limit]
+	}
+	return finished, nil
+}
+
 func (r *sessionRepoStub) ListLiveByUserID(_ context.Context, userID uuid.UUID) ([]domainsession.Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

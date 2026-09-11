@@ -14,6 +14,9 @@ type Service interface {
 	Start(ctx context.Context, userID uuid.UUID, in StartInput) (*domainsession.Session, error)
 	Get(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Session, error)
 	ListOpen(ctx context.Context, userID uuid.UUID) ([]domainsession.Session, error)
+	// ListFinished returns sessions that have ended, newest first. The journal reads this: a
+	// closed session the trader cannot find again is a post-mortem they cannot write.
+	ListFinished(ctx context.Context, userID uuid.UUID, limit int) ([]domainsession.Session, error)
 	// Step advances the cursor, releasing bars as it goes. Forward only — a negative count is
 	// refused, because a trader cannot go back. Once a bar is stepped past it is history, and a
 	// trader who wants a different setup randomizes a new feed.
@@ -53,6 +56,7 @@ type Repository interface {
 	Create(context.Context, *domainsession.Session) (*domainsession.Session, error)
 	GetByID(context.Context, uuid.UUID) (*domainsession.Session, error)
 	ListLiveByUserID(context.Context, uuid.UUID) ([]domainsession.Session, error)
+	ListFinishedByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]domainsession.Session, error)
 	GetLiveByAccountID(context.Context, uuid.UUID) (*domainsession.Session, error)
 	// UpdateCursor persists a cursor move under optimistic locking.
 	UpdateCursor(context.Context, *domainsession.Session) error

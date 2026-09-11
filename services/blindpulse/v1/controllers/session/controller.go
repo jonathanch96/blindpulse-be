@@ -114,7 +114,18 @@ func (c *controller) start(ctx *gin.Context) {
 // @Success 200 {object} response.Envelope{data=[]sessionresponse.Session}
 // @Router /sessions [get]
 func (c *controller) list(ctx *gin.Context) {
-	entities, err := c.sessions.ListOpen(ctx, actor(ctx).UserID)
+	// Two questions, one endpoint: "what am I trading" and "what have I finished". The default is
+	// the first, because that is what the terminal asks on every load.
+	var (
+		entities []domainsession.Session
+		err      error
+	)
+	if ctx.Query("scope") == "history" {
+		limit, _ := strconv.Atoi(ctx.Query("limit"))
+		entities, err = c.sessions.ListFinished(ctx, actor(ctx).UserID, limit)
+	} else {
+		entities, err = c.sessions.ListOpen(ctx, actor(ctx).UserID)
+	}
 	if err != nil {
 		response.Error(ctx, err)
 		return

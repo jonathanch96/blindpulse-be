@@ -96,6 +96,10 @@ func (s *service) Start(ctx context.Context, userID uuid.UUID, in StartInput) (*
 	return created, nil
 }
 
+func (s *service) ListFinished(ctx context.Context, userID uuid.UUID, limit int) ([]domainsession.Session, error) {
+	return s.deps.Repo.ListFinishedByUserID(ctx, userID, limit)
+}
+
 func (s *service) Get(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Session, error) {
 	return s.load(ctx, userID, sessionID)
 }

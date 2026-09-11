@@ -60,6 +60,26 @@ func (a *adapterGormPostgresql) ListLiveByUserID(ctx context.Context, userID uui
 	return toDomains(models), nil
 }
 
+// ListFinishedByUserID backs the journal: sessions that have ended, newest first.
+//
+// It exists because a closed session was unreachable. ListLiveByUserID is the terminal's question —
+// "what am I trading right now" — and the post-mortem asks the opposite one. Without this a trader
+// could close a session and never find it again, which would make the reveal a feature you could
+// only use in the thirty seconds before navigating away.
+func (a *adapterGormPostgresql) ListFinishedByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]domainsession.Session, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 25
+	}
+	var models []ReplaySession
+	err := appdb.FromContext(ctx, a.db).WithContext(ctx).
+		Where("user_id = ? AND status IN ?", userID, []string{string(domainsession.StatusClosed), string(domainsession.StatusAbandoned)}).
+		Order("COALESCE(closed_at, last_active_at) DESC").Limit(limit).Find(&models).Error
+	if err != nil {
+		return nil, apperror.Wrap(err, "INTERNAL_ERROR")
+	}
+	return toDomains(models), nil
+}
+
 func (a *adapterGormPostgresql) GetLiveByAccountID(ctx context.Context, accountID uuid.UUID) (*domainsession.Session, error) {
 	var model ReplaySession
 	err := appdb.FromContext(ctx, a.db).WithContext(ctx).
