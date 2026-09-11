@@ -8,7 +8,7 @@ import (
 )
 
 func frameAt(index int) domainsession.Frame {
-	return domainsession.Frame{Kind: domainsession.FrameBar, RevealedIndex: index}
+	return domainsession.Frame{Kind: domainsession.FrameBar, CursorIndex: index}
 }
 
 // The socket half of FR-REPLAY-05's backpressure rule. When frames are already queued the client
@@ -22,8 +22,8 @@ func TestDrainToLatestKeepsOnlyTheNewestQueuedFrame(t *testing.T) {
 	}
 
 	kept, dropped := drainToLatest(frames, frameAt(10))
-	if kept.RevealedIndex != 15 {
-		t.Errorf("kept index %d, want 15", kept.RevealedIndex)
+	if kept.CursorIndex != 15 {
+		t.Errorf("kept index %d, want 15", kept.CursorIndex)
 	}
 	// Five frames were behind the one in hand; the one in hand is not a drop.
 	if dropped != 5 {
@@ -40,8 +40,8 @@ func TestDrainToLatestIsANoOpForAClientKeepingUp(t *testing.T) {
 	t.Parallel()
 	frames := make(chan domainsession.Frame, 8)
 	kept, dropped := drainToLatest(frames, frameAt(7))
-	if kept.RevealedIndex != 7 || dropped != 0 {
-		t.Errorf("drain returned (%d, %d), want (7, 0)", kept.RevealedIndex, dropped)
+	if kept.CursorIndex != 7 || dropped != 0 {
+		t.Errorf("drain returned (%d, %d), want (7, 0)", kept.CursorIndex, dropped)
 	}
 }
 
@@ -52,8 +52,8 @@ func TestDrainToLatestStopsAtAClosedChannel(t *testing.T) {
 	close(frames)
 
 	kept, dropped := drainToLatest(frames, frameAt(1))
-	if kept.RevealedIndex != 2 || dropped != 1 {
-		t.Errorf("drain returned (%d, %d), want (2, 1)", kept.RevealedIndex, dropped)
+	if kept.CursorIndex != 2 || dropped != 1 {
+		t.Errorf("drain returned (%d, %d), want (2, 1)", kept.CursorIndex, dropped)
 	}
 }
 

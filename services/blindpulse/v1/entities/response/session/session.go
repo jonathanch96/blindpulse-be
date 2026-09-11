@@ -18,12 +18,11 @@ type Session struct {
 	Timeframe string `json:"timeframe"`
 	Speed     string `json:"speed"`
 
-	// Where the trader is looking.
+	// Where the trader is, which is also the furthest bar released: the cursor only moves forward,
+	// so those two can never differ. The client may read bars up to here and no further.
 	CursorIndex int `json:"cursor_index"`
-	// The furthest bar released. Never less than the cursor, and it only ever grows — the client
-	// needs it to know which bars it is allowed to have.
-	RevealedIndex int `json:"revealed_index"`
-	// "142 / 500 bars scanned" comes from these two.
+	// The same position counted from one rather than zero, for the PRD's "142 / 500 bars scanned"
+	// readout. Derived, not stored — it is sent so the client never has to know the off-by-one.
 	BarsScanned int `json:"bars_scanned"`
 	TotalBars   int `json:"total_bars"`
 
@@ -38,7 +37,7 @@ func FromDomain(entity domainsession.Session, totalBars int) Session {
 	return Session{
 		ID: entity.ID.String(), AccountID: entity.AccountID.String(), FeedID: entity.FeedID.String(),
 		Status: string(entity.Status), Timeframe: string(entity.Timeframe), Speed: entity.Speed.String(),
-		CursorIndex: entity.CursorIndex, RevealedIndex: entity.RevealedIndex,
+		CursorIndex: entity.CursorIndex,
 		BarsScanned: scanned, TotalBars: total,
 		StartedAt: entity.StartedAt, ClosedAt: entity.ClosedAt,
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 func barFrame(sessionID uuid.UUID, index int) domainsession.Frame {
-	return domainsession.Frame{SessionID: sessionID, Kind: domainsession.FrameBar, RevealedIndex: index}
+	return domainsession.Frame{SessionID: sessionID, Kind: domainsession.FrameBar, CursorIndex: index}
 }
 
 func TestMemoryBusDeliversToEverySocketOnTheSession(t *testing.T) {
@@ -32,8 +32,8 @@ func TestMemoryBusDeliversToEverySocketOnTheSession(t *testing.T) {
 	for name, channel := range map[string]<-chan domainsession.Frame{"first": first, "second": second} {
 		select {
 		case frame := <-channel:
-			if frame.RevealedIndex != 42 {
-				t.Errorf("%s socket got index %d, want 42", name, frame.RevealedIndex)
+			if frame.CursorIndex != 42 {
+				t.Errorf("%s socket got index %d, want 42", name, frame.CursorIndex)
 			}
 		case <-time.After(time.Second):
 			t.Errorf("%s socket got no frame", name)
@@ -68,7 +68,7 @@ func TestASlowSocketLosesTheOldestFrameAndKeepsTheNewest(t *testing.T) {
 	for {
 		select {
 		case frame := <-frames:
-			received = append(received, frame.RevealedIndex)
+			received = append(received, frame.CursorIndex)
 			continue
 		default:
 		}

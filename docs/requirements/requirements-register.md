@@ -20,7 +20,7 @@ the browser enforces is a rule a `curl` command ignores.
 | ID | Rule | PRD | Owner | Sprint | Status |
 |---|---|---|---|---|---|
 | BR-01 | The instrument, real dates and macro context of an active session are never disclosed before an explicit reveal | §1.2, §3.1 | BE | 02 | DONE |
-| BR-02 | The replay cursor is server-authoritative; a client cannot obtain a bar past it | §3.1 | BE | 03A | DONE |
+| BR-02 | The replay cursor is server-authoritative, forward-only, and a client cannot obtain a bar past it | §3.1 | BE | 03A, revised 04 | DONE — one index since the cursor cannot move backward |
 | BR-03 | No entry order is accepted without a hard stop loss | §3.3 | BE | 04 | PLANNED |
 | BR-04 | An order below the account's minimum R:R is rejected, never silently resized | §3.3 | BE | 04 | PLANNED |
 | BR-05 | Breaching the account's max daily drawdown halts trading for the session | §3.3 | BE | 04 | PLANNED |
@@ -63,12 +63,12 @@ the browser enforces is a rule a `curl` command ignores.
 | ID | Requirement | Owner | Sprint | Status |
 |---|---|---|---|---|
 | FR-REPLAY-01 | Create a session binding an account to a feed with a deterministic seed | BE | 03A | DONE |
-| FR-REPLAY-02 | Step forward and backward one bar (`Spacebar`) | BOTH | 03A/03C | DONE |
+| FR-REPLAY-02 | Step forward one bar (`Spacebar`) — **forward only** | BOTH | 03A/03C, revised 04 | DONE — backward stepping and `/seek` removed per the SP4-2 decision; a negative count is refused with `CURSOR_IS_FORWARD_ONLY` |
 | FR-REPLAY-03 | Continuous playback at 0.5x / 1x / 3x / 5x / 10x | BOTH | 03A/03E | Speed control DONE; continuous streaming in 03E |
 | FR-REPLAY-04 | Progress indicator (`142 / 500 bars scanned`) | FE | 03C | DONE |
 | FR-REPLAY-05 | Websocket streams frames at playback speed, resumable from the cursor | BOTH | 03E | **DONE** — server-driven clock, Redis pub/sub fan-out, single-use ticket auth, latest-wins backpressure |
 | FR-REPLAY-06 | Multi-timeframe toggle (1m / 5m / 15m / 1h / 4h / 1D) over the same cursor | BOTH | 03B/03C | DONE |
-| FR-REPLAY-07 | Pause, seek, close; idle sessions time out | BOTH | 03A/03C | DONE except the idle sweeper |
+| FR-REPLAY-07 | Pause, close; idle sessions time out | BOTH | 03A/03C | DONE — `seek` dropped per SP4-2; the idle sweeper runs in `cmd/worker` |
 | FR-REPLAY-08 | Simulated feed latency surfaced in the UI | BOTH | 03E | **DONE** — `latency_ms` per frame, measured per connection, shown beside the connection state |
 
 ### 2.4 Technical analysis ribbon — `FR-TA` (PRD §3.2)

@@ -24,26 +24,26 @@ const (
 
 func (s Status) Live() bool { return s == StatusOpen || s == StatusPaused }
 
-// Session is the aggregate. Two indices matter and they are not the same thing:
+// Session is the aggregate.
 //
-//   - CursorIndex is where the trader is looking. Stepping backward moves it.
-//   - RevealedIndex is the high-water mark: the furthest bar this session has ever released.
+// One index, and it only ever moves forward. CursorIndex is both where the trader is looking and
+// the furthest bar this session has released, because those cannot differ: a trader cannot go back.
+// Once a bar is stepped past it is history, the way it is on a live chart, and a trader who wants a
+// different setup randomizes a new feed rather than rewinding this one.
 //
-// The distinction is what makes candle-by-candle review safe. Without it, a trader could step
-// back and act on a bar whose outcome they had already seen, which is exactly the hindsight the
-// product removes. Reads are bounded by RevealedIndex, and order fills (Sprint 04) resolve at
-// RevealedIndex — never at a rewound cursor.
+// Sprint 03 carried a second index, RevealedIndex, precisely so that a *rewound* trader could not
+// act on a bar whose outcome they had already seen. Removing the ability to rewind removes the
+// premise, and with it the need to keep two numbers that can never differ.
 type Session struct {
-	ID            uuid.UUID
-	UserID        uuid.UUID
-	AccountID     uuid.UUID
-	FeedID        uuid.UUID
-	Status        Status
-	Timeframe     market.Timeframe
-	Speed         decimal.Decimal
-	CursorIndex   int
-	RevealedIndex int
-	CursorAt      *time.Time
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	AccountID   uuid.UUID
+	FeedID      uuid.UUID
+	Status      Status
+	Timeframe   market.Timeframe
+	Speed       decimal.Decimal
+	CursorIndex int
+	CursorAt    *time.Time
 
 	// Seed makes the session reproducible: the same feed and seed produce the same slippage draws,
 	// so a disputed fill can be recomputed rather than argued about (BR-10).
@@ -62,30 +62,28 @@ type Session struct {
 
 // CanRead reports whether a bar index has been released to this session.
 func (s Session) CanRead(index int) bool {
-	return index >= 0 && index <= s.RevealedIndex
+	return index >= 0 && index <= s.CursorIndex
 }
 
-// Progress is the "142 / 500 bars scanned" readout. It reports the revealed edge rather than the
-// view cursor, because that is what the trader has actually consumed of the feed.
+// Progress is the "142 / 500 bars scanned" readout.
 func (s Session) Progress(totalBars int) (scanned, total int) {
-	return s.RevealedIndex + 1, totalBars
+	return s.CursorIndex + 1, totalBars
 }
 
 // State is the hot subset kept in Redis between checkpoints. It is a cache: everything here can be
 // rebuilt from PostgreSQL, and losing it costs at most the bars since the last checkpoint.
 type State struct {
-	SessionID     uuid.UUID `json:"session_id"`
-	Status        Status    `json:"status"`
-	Timeframe     string    `json:"timeframe"`
-	Speed         string    `json:"speed"`
-	CursorIndex   int       `json:"cursor_index"`
-	RevealedIndex int       `json:"revealed_index"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	SessionID   uuid.UUID `json:"session_id"`
+	Status      Status    `json:"status"`
+	Timeframe   string    `json:"timeframe"`
+	Speed       string    `json:"speed"`
+	CursorIndex int       `json:"cursor_index"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (s Session) Snapshot() State {
 	return State{
 		SessionID: s.ID, Status: s.Status, Timeframe: string(s.Timeframe), Speed: s.Speed.String(),
-		CursorIndex: s.CursorIndex, RevealedIndex: s.RevealedIndex, UpdatedAt: s.UpdatedAt,
+		CursorIndex: s.CursorIndex, UpdatedAt: s.UpdatedAt,
 	}
 }

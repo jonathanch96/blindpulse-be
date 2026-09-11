@@ -270,8 +270,8 @@ func (s *service) frameFor(ctx context.Context, entity *domainsession.Session, k
 	frame := domainsession.Frame{
 		SessionID: entity.ID, Kind: kind, Status: entity.Status,
 		Timeframe: string(entity.Timeframe), Speed: entity.Speed.String(),
-		CursorIndex: entity.CursorIndex, RevealedIndex: entity.RevealedIndex,
-		ReleasedAt: s.deps.Clock(),
+		CursorIndex: entity.CursorIndex,
+		ReleasedAt:  s.deps.Clock(),
 	}
 	if feed, err := s.deps.Feeds.Get(ctx, entity.FeedID); err == nil {
 		frame.TotalBars = feed.TotalBars
@@ -323,7 +323,7 @@ func (s *service) SweepIdle(ctx context.Context, idleFor time.Duration, limit in
 		s.publish(ctx, entity, domainsession.FrameState)
 		if err := s.emit(ctx, entity.ID, event.TypeSessionAbandoned, event.TopicSessions, map[string]any{
 			"session_id": entity.ID, "user_id": entity.UserID, "account_id": entity.AccountID,
-			"cursor_index": entity.CursorIndex, "revealed_index": entity.RevealedIndex,
+			"cursor_index":   entity.CursorIndex,
 			"last_active_at": entity.LastActiveAt, "idle_for_seconds": int(idleFor.Seconds()),
 		}); err != nil {
 			// One session failing to emit must not strand the rest of the batch — they are already

@@ -14,12 +14,10 @@ type Service interface {
 	Start(ctx context.Context, userID uuid.UUID, in StartInput) (*domainsession.Session, error)
 	Get(ctx context.Context, userID, sessionID uuid.UUID) (*domainsession.Session, error)
 	ListOpen(ctx context.Context, userID uuid.UUID) ([]domainsession.Session, error)
-	// Step advances or rewinds the view. Advancing past the revealed edge is what releases new
-	// bars; rewinding never does.
+	// Step advances the cursor, releasing bars as it goes. Forward only — a negative count is
+	// refused, because a trader cannot go back. Once a bar is stepped past it is history, and a
+	// trader who wants a different setup randomizes a new feed.
 	Step(ctx context.Context, userID, sessionID uuid.UUID, count int) (*domainsession.Session, error)
-	// Seek moves the view cursor to an already-released bar. Seeking forward past the revealed
-	// edge is refused rather than clamped.
-	Seek(ctx context.Context, userID, sessionID uuid.UUID, index int) (*domainsession.Session, error)
 	SetSpeed(ctx context.Context, userID, sessionID uuid.UUID, speed string) (*domainsession.Session, error)
 	// SetTimeframe changes which timeframe the trader is viewing. It never moves the cursor: the
 	// session's position is one number in base bars, and looking at it through a coarser lens

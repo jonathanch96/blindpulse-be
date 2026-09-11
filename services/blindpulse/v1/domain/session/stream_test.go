@@ -183,7 +183,7 @@ func waitFor(t *testing.T, why string, condition func() bool) {
 func TestDriverAdvancesTheCursorWithoutTheClientAskingForAnything(t *testing.T) {
 	h := newStreamHarness(t)
 	entity := h.start(t)
-	opened := entity.RevealedIndex
+	opened := entity.CursorIndex
 
 	frames, stop, err := h.service.Stream(context.Background(), h.userID, entity.ID)
 	if err != nil {
@@ -211,8 +211,8 @@ func TestDriverAdvancesTheCursorWithoutTheClientAskingForAnything(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	if current.RevealedIndex < opened+3 {
-		t.Errorf("revealed index = %d after 3 bar frames, want at least %d", current.RevealedIndex, opened+3)
+	if current.CursorIndex < opened+3 {
+		t.Errorf("revealed index = %d after 3 bar frames, want at least %d", current.CursorIndex, opened+3)
 	}
 }
 
@@ -237,8 +237,8 @@ func TestDriverDoesNotAdvanceAPausedSession(t *testing.T) {
 	time.Sleep(40 * time.Millisecond)
 
 	current, _ := h.service.Get(context.Background(), h.userID, entity.ID)
-	if current.RevealedIndex != paused.RevealedIndex {
-		t.Errorf("paused session advanced from %d to %d", paused.RevealedIndex, current.RevealedIndex)
+	if current.CursorIndex != paused.CursorIndex {
+		t.Errorf("paused session advanced from %d to %d", paused.CursorIndex, current.CursorIndex)
 	}
 }
 
@@ -278,9 +278,9 @@ func TestAPauseArrivingMidTickIsNotOvertakenByTheStepBehindIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	if after.RevealedIndex != paused.RevealedIndex {
+	if after.CursorIndex != paused.CursorIndex {
 		t.Errorf("the clock released %d bar(s) after the pause landed (edge %d then %d)",
-			after.RevealedIndex-paused.RevealedIndex, paused.RevealedIndex, after.RevealedIndex)
+			after.CursorIndex-paused.CursorIndex, paused.CursorIndex, after.CursorIndex)
 	}
 }
 
@@ -299,9 +299,9 @@ func TestAManualStepStillWorksWhilePaused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Step() while paused error = %v", err)
 	}
-	if stepped.RevealedIndex != paused.RevealedIndex+1 {
+	if stepped.CursorIndex != paused.CursorIndex+1 {
 		t.Errorf("manual step while paused moved the edge to %d, want %d",
-			stepped.RevealedIndex, paused.RevealedIndex+1)
+			stepped.CursorIndex, paused.CursorIndex+1)
 	}
 }
 
@@ -323,9 +323,9 @@ func TestAReplicaWithoutTheLeaseDoesNotDrive(t *testing.T) {
 	time.Sleep(40 * time.Millisecond)
 
 	after, _ := h.service.Get(context.Background(), h.userID, entity.ID)
-	if after.RevealedIndex != before.RevealedIndex {
+	if after.CursorIndex != before.CursorIndex {
 		t.Errorf("a replica without the lease advanced the session from %d to %d",
-			before.RevealedIndex, after.RevealedIndex)
+			before.CursorIndex, after.CursorIndex)
 	}
 }
 
@@ -351,9 +351,9 @@ func TestTheLastSocketLeavingStopsTheClock(t *testing.T) {
 	settled, _ := h.service.Get(context.Background(), h.userID, entity.ID)
 	time.Sleep(40 * time.Millisecond)
 	after, _ := h.service.Get(context.Background(), h.userID, entity.ID)
-	if after.RevealedIndex != settled.RevealedIndex {
+	if after.CursorIndex != settled.CursorIndex {
 		t.Errorf("the clock kept running after the last socket left: %d then %d",
-			settled.RevealedIndex, after.RevealedIndex)
+			settled.CursorIndex, after.CursorIndex)
 	}
 }
 
@@ -379,9 +379,10 @@ func TestASecondSocketJoinsTheRunningClockRatherThanStartingASecond(t *testing.T
 	}
 }
 
-// Rewinding must never carry a bar. A rewind moves where the trader is looking and releases
-// nothing, so a bar frame there would be the stream quietly re-revealing what the cursor just left.
-func TestRewindPublishesStateAndNeverABar(t *testing.T) {
+// A refused backward step must publish nothing at all. Publishing a state frame for a move that
+// did not happen would tell every other socket on the session that something changed when nothing
+// did — and the cursor is forward-only, so nothing ever can.
+func TestARefusedBackwardStepPublishesNothing(t *testing.T) {
 	h := newStreamHarness(t)
 	entity := h.start(t)
 	ctx := context.Background()
@@ -390,16 +391,13 @@ func TestRewindPublishesStateAndNeverABar(t *testing.T) {
 		t.Fatalf("Step(+5) error = %v", err)
 	}
 	before := h.bus.count()
-	if _, err := h.service.Step(ctx, h.userID, entity.ID, -3); err != nil {
-		t.Fatalf("Step(-3) error = %v", err)
+
+	if _, err := h.service.Step(ctx, h.userID, entity.ID, -3); !apperror.Is(err, "CURSOR_IS_FORWARD_ONLY") {
+		t.Fatalf("Step(-3) error = %v, want CURSOR_IS_FORWARD_ONLY", err)
 	}
 
-	kinds := h.bus.kinds()[before:]
-	if len(kinds) != 1 {
-		t.Fatalf("a rewind published %d frames, want 1: %v", len(kinds), kinds)
-	}
-	if kinds[0] != domainsession.FrameState {
-		t.Errorf("a rewind published a %s frame, want %s", kinds[0], domainsession.FrameState)
+	if published := h.bus.kinds()[before:]; len(published) != 0 {
+		t.Errorf("a refused rewind published %v, want nothing", published)
 	}
 }
 
@@ -455,8 +453,8 @@ func TestSnapshotReportsTheServersCursor(t *testing.T) {
 	if frame.Kind != domainsession.FrameSync {
 		t.Errorf("Snapshot kind = %s, want %s", frame.Kind, domainsession.FrameSync)
 	}
-	if frame.RevealedIndex != entity.RevealedIndex+4 {
-		t.Errorf("Snapshot revealed index = %d, want %d", frame.RevealedIndex, entity.RevealedIndex+4)
+	if frame.CursorIndex != entity.CursorIndex+4 {
+		t.Errorf("Snapshot revealed index = %d, want %d", frame.CursorIndex, entity.CursorIndex+4)
 	}
 	if frame.TotalBars != h.feeds.feed.TotalBars {
 		t.Errorf("Snapshot total bars = %d, want %d", frame.TotalBars, h.feeds.feed.TotalBars)

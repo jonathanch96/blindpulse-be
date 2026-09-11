@@ -13,7 +13,7 @@ waiting on the next slice.
 
 | Slice | Scope | Repo | Status |
 |---|---|---|---|
-| **03A** | Session lifecycle and cursor authority — create, get, step, seek, speed, pause, close; bars bounded by the cursor; state in Redis with a PostgreSQL checkpoint | BE | **DONE** |
+| **03A** | Session lifecycle and cursor authority — create, get, step, speed, pause, close; bars bounded by the cursor; state in Redis with a PostgreSQL checkpoint | BE | **DONE** |
 | **03B** | Multi-timeframe resolution over one cursor, including the forming-bar rule | BE | **DONE** |
 | **03C** | Session wiring in the UI — start from a feed, transport controls, cursor readout, progress | FE | **DONE** |
 | **03D** | Chart canvas at 60 FPS with EMAs, RSI and scale modes | FE | **DONE** |
@@ -51,8 +51,8 @@ bars are recoverable because the client sees the jump in bar index and backfills
 stale frame is not recoverable at all.
 
 **The clock only advances the cursor.** Bar frames come out of `Step`, so a bar released by
-playback and a bar released by the step key travel one path and cannot drift apart. A rewind
-publishes a state frame and never a bar.
+playback and a bar released by the step key travel one path and cannot drift apart. A step that
+releases no bar — a refused backward step, a feed already exhausted — publishes nothing at all.
 
 **No date on the wire.** The internal frame carries a server instant — that is what the latency is
 measured from — so the wire type is separate and carries `latency_ms` only, guarded by
@@ -98,8 +98,7 @@ a stream fast enough for 60 FPS at 10x.
 ```
 POST   /sessions                  {account_id, feed_id}      → session (seeded)
 GET    /sessions/{id}                                        → state
-POST   /sessions/{id}/step        {direction, count?}        → new cursor + released bars
-POST   /sessions/{id}/seek        {bar_index}                → refused past the cursor
+POST   /sessions/{id}/step        {count}                    → new cursor + released bars
 POST   /sessions/{id}/speed       {speed}                    → 0.5–10, else INVALID_PLAYBACK_SPEED
 POST   /sessions/{id}/pause
 POST   /sessions/{id}/close                                  → final equity, seals the session
@@ -110,14 +109,17 @@ POST   /sessions/{id}/close                                  → final equity, s
   marked `abandoned`, so an abandoned session cannot hold an account hostage.
 
 ### 03.2 The cursor is authoritative (BR-02)
-- `GET /sessions/{id}/bars?from=&to=` returns bars **at or before** `cursor_index` only.
-- A request past the cursor returns `INVALID_CURSOR` — it is **not** clamped. A clamp silently
-  turns an attempt to peek into a successful, plausible-looking response, which is exactly the
-  failure mode this rule exists to prevent, and it hides a genuine client bug too.
-- `seek` backwards is allowed (reviewing what happened); `seek` forwards is `INVALID_CURSOR`.
-- Multi-timeframe (FR-REPLAY-06): a higher-timeframe request resolves against the **same** cursor;
-  a partially-formed higher bar is either withheld or returned explicitly flagged as forming.
-  It must never be returned complete, because a complete 1h bar reveals 59 minutes of future.
+
+> **Superseded in Sprint 04.** This section described two indices — `cursor_index` for where the
+> trader was looking and `revealed_index` for what they had been shown — so that a *rewound* trader
+> could not act on a bar whose outcome they had already seen. Sprint 04's decision on review finding
+> `SP4-2` removed the rewind instead: the cursor is forward-only, the two indices are one
+> (migration `000012`), and backward stepping is refused with `CURSOR_IS_FORWARD_ONLY`.
+>
+> What survives unchanged is the rule this section exists for: **the server decides what time it
+> is.** A client renders what it is given and asks to move; it never asserts where the cursor is,
+> and it can never obtain a bar the session has not released. Reads are still bounded by the
+> cursor, and asking past it is still refused rather than clamped.
 
 ### 03.3 Streaming (FR-REPLAY-05, NFR-01)
 - `GET /ws/sessions/{id}` — authenticated by the same bearer, upgraded to a websocket.
@@ -160,7 +162,7 @@ becomes the tick stream), `session.closed`.
 | # | Given | When | Then |
 |---|---|---|---|
 | 03-AC-1 | A session at bar 142 | `GET /bars?to=200` | `INVALID_CURSOR`; no bars returned |
-| 03-AC-2 | A session at bar 142 | `seek` to 100 then `GET /bars?to=142` | Seek succeeds; the bar request is now refused |
+| 03-AC-2 | A session at bar 142 | `step` with `count: -5` | `CURSOR_IS_FORWARD_ONLY`; the cursor is still 142 (revised per SP4-2; this was a `seek` acceptance) |
 | 03-AC-3 | A session on 15m at bar 142 | Switch to 1h | Only fully-formed 1h bars at or before the cursor are returned |
 | 03-AC-4 | Same feed and seed | Replayed twice with identical orders | Identical fills, equity curve and `root_hash` |
 | 03-AC-5 | An account with an open session | `POST /sessions` again | `SESSION_ALREADY_OPEN` |

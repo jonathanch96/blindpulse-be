@@ -33,15 +33,16 @@ const (
 // client (NFR-05). So this type stops at the socket: the wire type in entities/response/session
 // carries a latency in milliseconds and no date at all, and a leak test holds that line.
 type Frame struct {
-	SessionID     uuid.UUID `json:"session_id"`
-	Kind          FrameKind `json:"kind"`
-	Sequence      int64     `json:"sequence"`
-	Status        Status    `json:"status"`
-	Timeframe     string    `json:"timeframe"`
-	Speed         string    `json:"speed"`
-	CursorIndex   int       `json:"cursor_index"`
-	RevealedIndex int       `json:"revealed_index"`
-	TotalBars     int       `json:"total_bars"`
+	SessionID uuid.UUID `json:"session_id"`
+	Kind      FrameKind `json:"kind"`
+	Sequence  int64     `json:"sequence"`
+	Status    Status    `json:"status"`
+	Timeframe string    `json:"timeframe"`
+	Speed     string    `json:"speed"`
+	// CursorIndex is where the session is: both the bar the trader is on and the furthest bar
+	// released, which are the same number because the cursor only moves forward.
+	CursorIndex int `json:"cursor_index"`
+	TotalBars   int `json:"total_bars"`
 	// Bar is the tail bar of the session's current timeframe view. On a higher timeframe it is
 	// the forming bucket and its index repeats across frames until the bucket closes, so a client
 	// replaces its last bar by index rather than appending blindly.

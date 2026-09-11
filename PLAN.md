@@ -178,7 +178,8 @@ Kafka.
 
 **Sprint 03 — the replay session engine.**
 - `POST /sessions` (account + feed → seeded session), `GET /sessions/{id}`, `POST /sessions/{id}/step`,
-  `/seek`, `/speed`, `/pause`, `/close`.
+  `/speed`, `/pause`, `/close`. There is no `/seek`: the cursor is forward-only (see the SP4-2
+  decision in `docs/reviews/sprint-04-execution-risk.md`).
 - `GET /sessions/{id}/bars?to={cursor}` returns bars **up to the cursor only**. Requesting past it
   is `INVALID_CURSOR`, not a clamp — a clamp hides a client bug that is indistinguishable from an
   attempt to peek.

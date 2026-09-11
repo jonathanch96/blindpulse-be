@@ -28,7 +28,6 @@ func (c *controller) RegisterRoutes(group *gin.RouterGroup) {
 	group.GET("/sessions/:id", c.get)
 	group.GET("/sessions/:id/bars", c.bars)
 	group.POST("/sessions/:id/step", c.step)
-	group.POST("/sessions/:id/seek", c.seek)
 	group.POST("/sessions/:id/speed", c.speed)
 	group.POST("/sessions/:id/timeframe", c.timeframe)
 	group.POST("/sessions/:id/pause", c.pause)
@@ -260,7 +259,7 @@ func (c *controller) timeframe(ctx *gin.Context) {
 
 // step godoc
 // @Summary Step the cursor
-// @Description A positive count advances and may release new bars; a negative count rewinds and never does.
+// @Description Advances the cursor, releasing bars. Forward only: a negative count is refused, because a trader cannot go back.
 // @Tags sessions
 // @Security BearerAuth
 // @Param id path string true "Session ID"
@@ -283,32 +282,6 @@ func (c *controller) step(ctx *gin.Context) {
 		return
 	}
 	c.render(ctx, entity, "SESSION_STEPPED")
-}
-
-// seek godoc
-// @Summary Move the view to an already-released bar
-// @Tags sessions
-// @Security BearerAuth
-// @Param id path string true "Session ID"
-// @Param body body sessionrequest.Seek true "Seek"
-// @Success 200 {object} response.Envelope{data=sessionresponse.Session}
-// @Failure 400 {object} response.Envelope
-// @Router /sessions/{id}/seek [post]
-func (c *controller) seek(ctx *gin.Context) {
-	id, ok := sessionID(ctx)
-	if !ok {
-		return
-	}
-	var request sessionrequest.Seek
-	if !bind(ctx, &request) {
-		return
-	}
-	entity, err := c.sessions.Seek(ctx, actor(ctx).UserID, id, request.BarIndex)
-	if err != nil {
-		response.Error(ctx, err)
-		return
-	}
-	c.render(ctx, entity, "SESSION_SEEKED")
 }
 
 // speed godoc

@@ -46,14 +46,21 @@ high-water mark) are separate, reads are bounded by the second, and
 moves one and never the other. This resolves a genuine contradiction in the PRD — "step backward"
 versus "cursor bounds visibility" — rather than picking one and hoping.
 
+> **Superseded by the `SP4-2` decision.** The two indices are now one and the rewind is gone
+> (migration `000012`); the contradiction was resolved the other way, by dropping the backward step
+> rather than making it safe. The judgement above was sound for the spec as it stood — it is left
+> here because what followed is the more useful record: the safe-rewind machinery was built, worked,
+> and was then deleted, because the feature it protected turned out not to be wanted.
+
 **Refusal, not clamping.** `Seek` past the edge returns `INVALID_CURSOR` naming both indices
 (`domain/session/service.go:143`). A clamp would turn an attempt to peek into a
 successful-looking response and hide a client bug at the same time. This is stated in the comment
-and honoured everywhere it applies.
+and honoured everywhere it applies. (`Seek` is gone per `SP4-2`; the refuse-don't-clamp rule it
+established still governs `GET /bars` and the step.)
 
 **The Redis cache is a cache.** `load()` prefers cached state **only forward** — `if
-state.RevealedIndex >= entity.RevealedIndex` — so a stale cache can never un-reveal a bar the trader
-has already been shown. Every `StateStore` method is a safe no-op when Redis is off. The distinction
+state.RevealedIndex >= entity.RevealedIndex`, now `state.CursorIndex >= entity.CursorIndex` — so a
+stale cache can never un-reveal a bar the trader has already been shown. Every `StateStore` method is a safe no-op when Redis is off. The distinction
 between "a cache miss" and "a failure" is made correctly and consistently.
 
 **The pause race was found by running it, not by reading it.** The clock read the status, slept a

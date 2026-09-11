@@ -33,7 +33,7 @@ Five things need deciding first. None is a flaw in the plan so much as a questio
 | | ID | Open question |
 |---|---|---|
 | **High** | `SP4-1` | What is "daily" in replay time — and does answering it leak the asset class? |
-| **High** | `SP4-2` | Can a trader place an order while rewound, and where does it resolve? |
+| ~~High~~ **DECIDED** | `SP4-2` | ~~Can a trader place an order while rewound?~~ — **the cursor is forward-only.** Backward stepping and `/seek` removed, the two indices collapsed to one; there is no rewound state for an order to land in |
 | Medium | `SP4-3` | The margin model behind `INSUFFICIENT_MARGIN` is unspecified |
 | Medium | `SP4-4` | Position sizing needs tick size, which is currently hardcoded for every instrument |
 | Low | `SP4-5` | Same-bar entry-and-stop for resting orders is unaddressed |
@@ -67,27 +67,31 @@ left — never when the window turns over. Worth an explicit note in the sprint 
 the same style as `feed/leak_test.go`, because this is precisely the kind of derived field that
 reaches a payload without anyone deciding it should.
 
-### `SP4-2` · High · Order placement while rewound is undefined
+### `SP4-2` · ~~High~~ **DECIDED** · The cursor is forward-only
 
-**Where:** the gate table (§04.2) checks session open and not halted, and nothing about the cursor.
+**Decision: a trader cannot go back at all.**
 
-Sprint 03 established that `cursor_index` can sit behind `revealed_index` — reviewing history is a
-first-class feature, and the terminal shows "Reviewing T-N · live edge held". The session entity's
-own comment already anticipates the interaction: *"order fills resolve at RevealedIndex — never at a
-rewound cursor"*.
+Backward stepping is refused with `CURSOR_IS_FORWARD_ONLY`, `POST /sessions/{id}/seek` is gone, and
+`cursor_index`/`revealed_index` have collapsed into one index (migration `000012`). Once a bar is
+stepped past it is history, the way it is on a live chart. A trader who wants a different setup
+randomizes a new feed.
 
-The Sprint 04 plan never restates it. So three behaviours are all consistent with the document as
-written:
+This removes the question rather than answering it. The three readings the old spec permitted —
+refuse while rewound, resolve at the edge, resolve at the cursor — reduce to one, because there is
+no rewound state. The third reading was the dangerous one: it would have let somebody step back and
+trade a bar whose outcome they had already seen, which is the hindsight the product exists to
+remove, and it was reachable by a plausible reading of the document as written.
 
-1. Refuse orders while rewound (`INVALID_CURSOR`).
-2. Accept, and resolve at the revealed edge — which is what the entity comment says.
-3. Accept, and resolve at the cursor — which would let a trader step back and trade a bar whose
-   outcome they have already seen. **This is the hindsight the product exists to remove**, and it is
-   reachable by a plausible reading of the current spec.
+**What this cost.** Sprint 03 built the two-index model specifically to make rewinding safe, and the
+frontend's "Reviewing T-N · live edge held" banner and step-back control went with it. That work was
+not wasted — it was the correct design for the product as specified at the time, and the database
+CHECK it introduced is what made the contradiction visible enough to decide. But a second index that
+can never differ from the first is a model that lies about what the system does, so it went rather
+than being left in place "in case".
 
-**Decide before building**, and encode it in the gate table as a numbered row so it is checked in a
-defined order like everything else. Option 2 matches the existing design; option 1 is more obvious
-to the trader. Option 3 must be explicitly impossible, with a test that says so.
+**What this does not cost.** Forward-only bounds where the *cursor* can go, not what the trader may
+look at. Everything already stepped past stays readable and on the chart; scrolling back over your
+own history is ordinary charting and is unaffected.
 
 ### `SP4-3` · Medium · `INSUFFICIENT_MARGIN` has no model behind it
 
@@ -149,6 +153,8 @@ but it should be written down beside the other rule rather than decided in code.
 1. `BE-02-3` (tick size) — blocking, per `SP4-4`.
 2. `BE-03-1` (the idle sweeper) — not blocking, but Sprint 04 makes an abandoned session more
    expensive, because it will hold open positions and a drawdown state rather than just a cursor.
-3. `BE-03-3` — NFR-03's deterministic session hash belongs to this sprint; re-date it in the
-   register when Sprint 04 starts, and make the `(seed, bar_index, order_sequence)` PRNG contract
-   part of the sprint's Definition of Done.
+3. `BE-03-3` — NFR-03's deterministic session hash belongs to this sprint; **already re-dated** in
+   the register. Make the `(seed, bar_index, order_sequence)` PRNG contract part of the sprint's
+   Definition of Done.
+4. `SP4-2` — **settled**: the cursor is forward-only, shipped ahead of the sprint. Three decisions
+   remain (`SP4-1`, `SP4-3`, `SP4-5`).

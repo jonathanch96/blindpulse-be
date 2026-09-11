@@ -18,14 +18,16 @@ import (
 //
 // The absence of a date here is a property under test, not a convention. See frame_leak_test.go.
 type Frame struct {
-	Kind          string `json:"kind"`
-	Status        string `json:"status"`
-	Timeframe     string `json:"timeframe"`
-	Speed         string `json:"speed"`
-	CursorIndex   int    `json:"cursor_index"`
-	RevealedIndex int    `json:"revealed_index"`
-	BarsScanned   int    `json:"bars_scanned"`
-	TotalBars     int    `json:"total_bars"`
+	Kind      string `json:"kind"`
+	Status    string `json:"status"`
+	Timeframe string `json:"timeframe"`
+	Speed     string `json:"speed"`
+	// CursorIndex is the session's one forward-only position, and BarsScanned is that same
+	// position counted from one for the "142 / 500 bars scanned" readout. Both are sent so the
+	// client's progress display and its bar-window bound cannot disagree about the off-by-one.
+	CursorIndex int `json:"cursor_index"`
+	BarsScanned int `json:"bars_scanned"`
+	TotalBars   int `json:"total_bars"`
 	// LatencyMs is the simulated feed latency the terminal displays (FR-REPLAY-08): the time
 	// between this engine releasing the bar and this frame being written to this socket. Measured
 	// per connection, so a client on a congested replica sees its own number rather than an
@@ -40,15 +42,14 @@ type Frame struct {
 // the number reflects this connection rather than the moment the frame was built.
 func FrameFromDomain(frame domainsession.Frame, now time.Time) Frame {
 	wire := Frame{
-		Kind:          string(frame.Kind),
-		Status:        string(frame.Status),
-		Timeframe:     frame.Timeframe,
-		Speed:         frame.Speed,
-		CursorIndex:   frame.CursorIndex,
-		RevealedIndex: frame.RevealedIndex,
-		BarsScanned:   frame.RevealedIndex + 1,
-		TotalBars:     frame.TotalBars,
-		LatencyMs:     latencyMs(frame.ReleasedAt, now),
+		Kind:        string(frame.Kind),
+		Status:      string(frame.Status),
+		Timeframe:   frame.Timeframe,
+		Speed:       frame.Speed,
+		CursorIndex: frame.CursorIndex,
+		BarsScanned: frame.CursorIndex + 1,
+		TotalBars:   frame.TotalBars,
+		LatencyMs:   latencyMs(frame.ReleasedAt, now),
 	}
 	if frame.Bar != nil {
 		bars := feedresponse.FromDomainBars([]domainfeed.Bar{*frame.Bar})

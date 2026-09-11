@@ -44,16 +44,15 @@ func sampleFrame() domainsession.Frame {
 		Volume:   decimal.RequireFromString("18420"),
 	}, 214)
 	return domainsession.Frame{
-		SessionID:     uuid.MustParse("2f1c4e10-9a3d-4c77-8b21-6d5e0f3a9c11"),
-		Kind:          domainsession.FrameBar,
-		Status:        domainsession.StatusOpen,
-		Timeframe:     "15m",
-		Speed:         "3",
-		CursorIndex:   214,
-		RevealedIndex: 214,
-		TotalBars:     701,
-		Bar:           &bar,
-		ReleasedAt:    time.Date(2026, 9, 10, 7, 15, 30, 0, time.UTC),
+		SessionID:   uuid.MustParse("2f1c4e10-9a3d-4c77-8b21-6d5e0f3a9c11"),
+		Kind:        domainsession.FrameBar,
+		Status:      domainsession.StatusOpen,
+		Timeframe:   "15m",
+		Speed:       "3",
+		CursorIndex: 214,
+		TotalBars:   701,
+		Bar:         &bar,
+		ReleasedAt:  time.Date(2026, 9, 10, 7, 15, 30, 0, time.UTC),
 	}
 }
 
@@ -88,8 +87,13 @@ func TestStreamFrameReportsLatencyInsteadOfTheInstant(t *testing.T) {
 	if wire.Bar == nil || wire.Bar.Index != 214 {
 		t.Fatalf("frame lost its bar: %+v", wire.Bar)
 	}
-	if wire.BarsScanned != 215 {
-		t.Errorf("bars_scanned = %d, want 215 (the revealed edge is zero-based)", wire.BarsScanned)
+	// The progress readout is derived from the cursor, and the fixture deliberately does not set
+	// it: a frame carrying its own bars_scanned would let this pass while the conversion read some
+	// other field. It did, once — the second index was dropped from the producer while this
+	// conversion still read it, so every frame on the wire claimed bar 1 of 701 with the cursor at
+	// 214. A populated, parseable, wrong number is invisible to a client, so it has to fail here.
+	if wire.BarsScanned != frame.CursorIndex+1 {
+		t.Errorf("bars_scanned = %d at cursor %d, want %d", wire.BarsScanned, frame.CursorIndex, frame.CursorIndex+1)
 	}
 }
 

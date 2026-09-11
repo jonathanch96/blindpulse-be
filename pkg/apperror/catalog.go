@@ -13,6 +13,9 @@ var catalog = map[string]definition{
 	"INVALID_TIMEFRAME":      {http.StatusBadRequest, "Timeframe is not supported"},
 	"INVALID_PLAYBACK_SPEED": {http.StatusBadRequest, "Playback speed is outside the supported range"},
 	"INVALID_CURSOR":         {http.StatusBadRequest, "Replay cursor is outside the session window"},
+	// The replay cursor only moves forward. A trader who wants a different setup randomizes a new
+	// feed; there is no going back to trade a bar whose outcome they have already seen.
+	"CURSOR_IS_FORWARD_ONLY": {http.StatusBadRequest, "The replay cursor cannot move backward"},
 	"ORDER_STOP_REQUIRED":    {http.StatusBadRequest, "Every entry must carry a hard stop loss"},
 	"ORDER_STOP_INVALID":     {http.StatusBadRequest, "Stop loss is on the wrong side of the entry"},
 	"ORDER_TARGET_INVALID":   {http.StatusBadRequest, "Take profit is on the wrong side of the entry"},

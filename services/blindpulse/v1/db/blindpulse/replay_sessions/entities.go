@@ -16,7 +16,6 @@ type ReplaySession struct {
 	Timeframe           string          `gorm:"column:timeframe"`
 	PlaybackSpeed       decimal.Decimal `gorm:"column:playback_speed;type:numeric"`
 	CursorIndex         int             `gorm:"column:cursor_index"`
-	RevealedIndex       int             `gorm:"column:revealed_index"`
 	CursorAt            *time.Time      `gorm:"column:cursor_at"`
 	Seed                int64           `gorm:"column:seed"`
 	LastCheckpointIndex int             `gorm:"column:last_checkpoint_index"`

@@ -50,7 +50,12 @@ Most retail and aspiring quantitative traders fail because of **hindsight bias**
   - X-axis date stamps are replaced with relative tick offsets (`T - 140`, `T - 0 Live Playhead`, `Future Window`).
   - Ticker name is masked as `Asset #XXX [FX/Crypto Masked]`.
 - **Playback Controls**:
-  - Step Backward / Forward candle-by-candle (Keyboard shortcut: `Spacebar`).
+  - Step Forward candle-by-candle (Keyboard shortcut: `Spacebar`). **Forward only** — the cursor
+    never moves backward. Once a bar is stepped past it is history, the way it is on a live chart;
+    a trader who wants a different setup randomizes a new feed rather than rewinding this one.
+    (This supersedes the original "Step Backward / Forward". The reversal is deliberate: a rewind
+    is the one mechanism that could put a trader in front of a bar whose outcome they had already
+    seen, and removing it removes the problem rather than guarding against it.)
   - Continuous replay at variable speeds (`0.5x`, `1.0x`, `3.0x`, `5.0x`, `10.0x`).
   - Tick progress indicator (e.g., `142 / 500 bars scanned`).
   - Safety-gated **Reveal Asset** trigger.

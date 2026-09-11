@@ -271,9 +271,8 @@ func TestStartOpensAtTheEndOfTheWarmupWindow(t *testing.T) {
 
 	// The trader is handed the lookback and nothing beyond it. Bar 199 is the newest free bar;
 	// bar 200 is the first they must step to.
-	if entity.CursorIndex != 199 || entity.RevealedIndex != 199 {
-		t.Fatalf("cursor = %d, revealed = %d; want both at the last warmup bar (199)",
-			entity.CursorIndex, entity.RevealedIndex)
+	if entity.CursorIndex != 199 {
+		t.Fatalf("cursor = %d; want the last warmup bar (199)", entity.CursorIndex)
 	}
 	if entity.Seed != 4242 {
 		t.Fatalf("seed = %d; a session without a recorded seed is not reproducible", entity.Seed)
@@ -325,9 +324,8 @@ func TestSteppingForwardReleasesExactlyOneBarAtATime(t *testing.T) {
 		t.Fatalf("Step() error = %v", err)
 	}
 
-	if stepped.CursorIndex != 200 || stepped.RevealedIndex != 200 {
-		t.Fatalf("after one step cursor = %d, revealed = %d; want 200 and 200",
-			stepped.CursorIndex, stepped.RevealedIndex)
+	if stepped.CursorIndex != 200 {
+		t.Fatalf("after one step cursor = %d, want 200", stepped.CursorIndex)
 	}
 	if _, err := h.service.Bars(context.Background(), h.userID, entity.ID, 0, 200); err != nil {
 		t.Fatalf("bar 200 should be readable after stepping to it: %v", err)
@@ -337,10 +335,13 @@ func TestSteppingForwardReleasesExactlyOneBarAtATime(t *testing.T) {
 	}
 }
 
-// The rule that makes candle-by-candle review safe: rewinding moves what the trader is looking at,
-// never what they are allowed to know. Without it, stepping back would let somebody act on a bar
-// whose outcome they had already seen.
-func TestRewindingDoesNotLowerTheRevealedEdge(t *testing.T) {
+// The cursor is forward-only, and this is the test that says so.
+//
+// Sprint 03 allowed a rewind and tracked a second index so a rewound trader could not act on a bar
+// whose outcome they had already seen. The product decision removed the rewind instead: once a bar
+// is stepped past it is history, the way it is on a live chart, and a trader who wants a different
+// setup randomizes a new feed.
+func TestSteppingBackwardIsRefused(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, true)
 	entity := h.start(t)
@@ -348,50 +349,37 @@ func TestRewindingDoesNotLowerTheRevealedEdge(t *testing.T) {
 		t.Fatalf("Step() error = %v", err)
 	}
 
-	rewound, err := h.service.Step(context.Background(), h.userID, entity.ID, -15)
+	_, err := h.service.Step(context.Background(), h.userID, entity.ID, -15)
+	if !apperror.Is(err, "CURSOR_IS_FORWARD_ONLY") {
+		t.Fatalf("stepping backward err = %v, want CURSOR_IS_FORWARD_ONLY", err)
+	}
+
+	// Refused, not clamped: the cursor has not moved at all.
+	current, err := h.service.Get(context.Background(), h.userID, entity.ID)
 	if err != nil {
-		t.Fatalf("rewind error = %v", err)
+		t.Fatalf("Get() error = %v", err)
 	}
-
-	if rewound.CursorIndex != 204 {
-		t.Fatalf("cursor = %d, want 204 after rewinding 15 from 219", rewound.CursorIndex)
-	}
-	if rewound.RevealedIndex != 219 {
-		t.Fatalf("revealed = %d, want it held at 219 — rewinding must not un-reveal", rewound.RevealedIndex)
-	}
-	// And the bars they already saw are still readable, because they already saw them.
-	if _, err := h.service.Bars(context.Background(), h.userID, entity.ID, 0, 219); err != nil {
-		t.Fatalf("already-revealed bars should stay readable after a rewind: %v", err)
+	if current.CursorIndex != 219 {
+		t.Fatalf("cursor = %d after a refused rewind, want it untouched at 219", current.CursorIndex)
 	}
 }
 
-func TestSeekForwardIsRefused(t *testing.T) {
+// Everything already stepped past stays readable. Forward-only bounds where the cursor can go, not
+// what the trader may look at — they can still scroll back over the history they have been shown,
+// the same as on any live chart.
+func TestHistoryStaysReadableAfterSteppingPastIt(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, true)
 	entity := h.start(t)
-
-	_, err := h.service.Seek(context.Background(), h.userID, entity.ID, 250)
-
-	if !apperror.Is(err, "INVALID_CURSOR") {
-		t.Fatalf("seeking forward err = %v, want INVALID_CURSOR", err)
-	}
-}
-
-func TestSeekBackwardIsAllowedForReview(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, true)
-	entity := h.start(t)
-	if _, err := h.service.Step(context.Background(), h.userID, entity.ID, 30); err != nil {
+	if _, err := h.service.Step(context.Background(), h.userID, entity.ID, 20); err != nil {
 		t.Fatalf("Step() error = %v", err)
 	}
 
-	sought, err := h.service.Seek(context.Background(), h.userID, entity.ID, 205)
-	if err != nil {
-		t.Fatalf("Seek() error = %v", err)
+	if _, err := h.service.Bars(context.Background(), h.userID, entity.ID, 0, 219); err != nil {
+		t.Fatalf("bars already shown should stay readable: %v", err)
 	}
-
-	if sought.CursorIndex != 205 || sought.RevealedIndex != 229 {
-		t.Fatalf("cursor = %d, revealed = %d; want 205 and 229", sought.CursorIndex, sought.RevealedIndex)
+	if _, err := h.service.Bars(context.Background(), h.userID, entity.ID, 0, 220); !apperror.Is(err, "INVALID_CURSOR") {
+		t.Fatalf("bar 220 err = %v, want INVALID_CURSOR — it has not been reached", err)
 	}
 }
 
@@ -431,10 +419,8 @@ func TestClosedSessionsRefuseFurtherMovement(t *testing.T) {
 	}
 
 	_, stepErr := h.service.Step(context.Background(), h.userID, entity.ID, 1)
-	_, seekErr := h.service.Seek(context.Background(), h.userID, entity.ID, 100)
-
-	if !apperror.Is(stepErr, "SESSION_CLOSED") || !apperror.Is(seekErr, "SESSION_CLOSED") {
-		t.Fatalf("step err = %v, seek err = %v; both want SESSION_CLOSED", stepErr, seekErr)
+	if !apperror.Is(stepErr, "SESSION_CLOSED") {
+		t.Fatalf("step err = %v, want SESSION_CLOSED", stepErr)
 	}
 	// Closed sessions stay readable — the post-mortem needs them.
 	if _, err := h.service.Bars(context.Background(), h.userID, entity.ID, 0, 199); err != nil {
@@ -472,7 +458,7 @@ func TestCursorRulesHoldWithoutTheCache(t *testing.T) {
 }
 
 // A stale cache must never be able to un-reveal a bar the trader has already been shown.
-func TestAStaleCacheCannotRewindTheRevealedEdge(t *testing.T) {
+func TestAStaleCacheCannotRewindTheCursor(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, true)
 	entity := h.start(t)
@@ -481,8 +467,7 @@ func TestAStaleCacheCannotRewindTheRevealedEdge(t *testing.T) {
 	}
 	// Simulate a cache holding an older snapshot than the database.
 	h.state.states[entity.ID] = domainsession.State{
-		SessionID: entity.ID, Status: domainsession.StatusOpen,
-		CursorIndex: 100, RevealedIndex: 100,
+		SessionID: entity.ID, Status: domainsession.StatusOpen, CursorIndex: 100,
 	}
 
 	current, err := h.service.Get(context.Background(), h.userID, entity.ID)
@@ -490,8 +475,8 @@ func TestAStaleCacheCannotRewindTheRevealedEdge(t *testing.T) {
 		t.Fatalf("Get() error = %v", err)
 	}
 
-	if current.RevealedIndex != 249 {
-		t.Fatalf("revealed = %d; a stale cache must not lower it below the stored 249", current.RevealedIndex)
+	if current.CursorIndex != 249 {
+		t.Fatalf("cursor = %d; a stale cache must not lower it below the stored 249", current.CursorIndex)
 	}
 }
 
@@ -510,9 +495,8 @@ func TestSwitchingTimeframeDoesNotMoveTheCursor(t *testing.T) {
 		t.Fatalf("SetTimeframe() error = %v", err)
 	}
 
-	if switched.CursorIndex != 236 || switched.RevealedIndex != 236 {
-		t.Fatalf("cursor = %d, revealed = %d; switching the lens must leave both at 236",
-			switched.CursorIndex, switched.RevealedIndex)
+	if switched.CursorIndex != 236 {
+		t.Fatalf("cursor = %d; switching the lens must leave it at 236", switched.CursorIndex)
 	}
 	if switched.Timeframe != market.TF1h {
 		t.Fatalf("timeframe = %s, want 1h", switched.Timeframe)
@@ -523,8 +507,8 @@ func TestSwitchingTimeframeDoesNotMoveTheCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetTimeframe() back error = %v", err)
 	}
-	if back.CursorIndex != 236 || back.RevealedIndex != 236 {
-		t.Fatalf("round-tripping the timeframe moved the cursor to %d/%d", back.CursorIndex, back.RevealedIndex)
+	if back.CursorIndex != 236 {
+		t.Fatalf("round-tripping the timeframe moved the cursor to %d", back.CursorIndex)
 	}
 }
 
@@ -542,17 +526,14 @@ func TestTimeframeFinerThanTheFeedIsRefused(t *testing.T) {
 	}
 }
 
-// The view is bounded by the revealed edge, not the view cursor: rewinding changes where the
-// trader is looking, never what they are permitted to know.
-func TestViewBarsAreBoundedByTheRevealedEdgeNotTheCursor(t *testing.T) {
+// The view is bounded by the cursor — the only index there is. Everything stepped past is
+// included, nothing beyond it ever is.
+func TestViewBarsAreBoundedByTheCursor(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, true)
 	entity := h.start(t)
 	if _, err := h.service.Step(context.Background(), h.userID, entity.ID, 40); err != nil {
 		t.Fatalf("Step() error = %v", err)
-	}
-	if _, err := h.service.Step(context.Background(), h.userID, entity.ID, -30); err != nil {
-		t.Fatalf("rewind error = %v", err)
 	}
 
 	if _, err := h.service.ViewBars(context.Background(), h.userID, entity.ID, market.TF1h); err != nil {
@@ -560,8 +541,7 @@ func TestViewBarsAreBoundedByTheRevealedEdgeNotTheCursor(t *testing.T) {
 	}
 
 	if h.feeds.viewedUpto != 239 {
-		t.Fatalf("view was built up to base bar %d; want the revealed edge 239, not the rewound cursor 209",
-			h.feeds.viewedUpto)
+		t.Fatalf("view was built up to base bar %d; want the cursor 239", h.feeds.viewedUpto)
 	}
 }
 

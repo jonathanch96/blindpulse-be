@@ -85,7 +85,6 @@ func (a *adapterGormPostgresql) UpdateCursor(ctx context.Context, entity *domain
 			"timeframe":             string(entity.Timeframe),
 			"playback_speed":        entity.Speed,
 			"cursor_index":          entity.CursorIndex,
-			"revealed_index":        entity.RevealedIndex,
 			"last_checkpoint_index": entity.LastCheckpointIndex,
 			"last_active_at":        entity.LastActiveAt,
 			"closed_at":             entity.ClosedAt,

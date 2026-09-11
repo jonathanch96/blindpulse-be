@@ -7,14 +7,11 @@ type Start struct {
 }
 
 type Step struct {
-	// Count is signed: positive advances and may release new bars, negative rewinds and never
-	// does. One field rather than a direction plus a magnitude, so "step back 3" cannot be
-	// expressed two different ways.
+	// Count advances the cursor. It stays signed, and negatives stay inside the accepted range,
+	// even though the cursor is forward-only: a negative count reaches the domain and comes back
+	// as CURSOR_IS_FORWARD_ONLY, which tells the caller what the rule is. Rejecting it here would
+	// answer a client that tried to rewind with a generic validation failure instead.
 	Count int `json:"count" binding:"required,min=-500,max=500"`
-}
-
-type Seek struct {
-	BarIndex int `json:"bar_index" binding:"min=0"`
 }
 
 type Speed struct {

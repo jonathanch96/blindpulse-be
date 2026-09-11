@@ -51,6 +51,23 @@ shrink learns nothing about sizing.
 **A rejected order is persisted** (BR-09) with its `rejection_code`. Sprint 06's discipline index
 is largely built from what the trader *tried* to do, and discarding rejections would erase it.
 
+### 04.2a Where an order resolves — settled
+
+**There is no rewound cursor to resolve against.** The replay cursor is forward-only as of this
+sprint's decision on review finding `SP4-2`: backward stepping and `/seek` are gone, and the session
+carries one index rather than two. An order therefore always resolves at the cursor, because the
+cursor is the only position there is.
+
+This was the sharpest of the open questions, because one plausible reading of the earlier spec
+permitted trading a bar whose outcome the trader had already seen. Removing the rewind removes the
+reading rather than guarding against it, which is why the gate table below has no row for it: a
+check that can never fail is a check that will eventually be deleted by someone who cannot see why
+it is there.
+
+A trader who wants a different setup randomizes a new feed. That is the product's answer to "I want
+to try that again", and it is a better one than a rewind: a fresh feed is a fresh test, where a
+replayed one is a memory test.
+
 ### 04.3 Fill engine (FR-EXEC-09)
 - Market orders fill at the next bar's open plus spread and seeded slippage.
 - Limit and stop orders rest and are resolved as the cursor advances.

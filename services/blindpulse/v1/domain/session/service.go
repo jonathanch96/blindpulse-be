@@ -76,9 +76,9 @@ func (s *service) Start(ctx context.Context, userID uuid.UUID, in StartInput) (*
 	entity := &domainsession.Session{
 		ID: uuid.New(), UserID: userID, AccountID: in.AccountID, FeedID: in.FeedID,
 		Status: domainsession.StatusOpen, Timeframe: timeframe, Speed: decimal.NewFromInt(1),
-		CursorIndex: start, RevealedIndex: start,
-		Seed:      s.deps.Seeds(),
-		StartedAt: now, LastActiveAt: now, LastCheckpointIndex: start,
+		CursorIndex: start,
+		Seed:        s.deps.Seeds(),
+		StartedAt:   now, LastActiveAt: now, LastCheckpointIndex: start,
 		CreatedAt: now, UpdatedAt: now, Version: 1,
 	}
 	created, err := s.deps.Repo.Create(ctx, entity)
@@ -104,8 +104,12 @@ func (s *service) ListOpen(ctx context.Context, userID uuid.UUID) ([]domainsessi
 	return s.deps.Repo.ListLiveByUserID(ctx, userID)
 }
 
-// Step moves the view. A positive count advances and may release new bars; a negative count
-// rewinds and never does — that asymmetry is the whole point of tracking a revealed edge.
+// Step advances the cursor. Forward only: a negative count is refused rather than clamped, because
+// a clamp would turn "let me look back" into a successful-looking no-op instead of telling the
+// client the thing it needs to know.
+//
+// There is no going back. Once a bar is stepped past it is history, the way it is on a live chart,
+// and a trader who wants a different setup randomizes a new feed rather than rewinding this one.
 func (s *service) Step(ctx context.Context, userID, sessionID uuid.UUID, count int) (*domainsession.Session, error) {
 	entity, err := s.loadLive(ctx, userID, sessionID)
 	if err != nil {
@@ -125,42 +129,17 @@ func (s *service) stepLoaded(ctx context.Context, entity *domainsession.Session,
 	if err != nil {
 		return nil, err
 	}
-	target := entity.CursorIndex + count
-	if target < 0 {
-		return nil, apperror.Newf("INVALID_CURSOR", "cannot step before the first bar")
+	if count < 0 {
+		return nil, apperror.Newf("CURSOR_IS_FORWARD_ONLY",
+			"the replay cursor cannot move backward; randomize a new feed to trade a different setup")
 	}
+	target := entity.CursorIndex + count
 	if target > feed.TotalBars-1 {
 		return nil, apperror.New("BARS_EXHAUSTED")
 	}
-	released := target > entity.RevealedIndex
 	entity.CursorIndex = target
-	if released {
-		entity.RevealedIndex = target
-	}
-	// Only an advance past the edge carries a bar. A rewind moves where the trader is looking and
-	// releases nothing, so it travels as a state frame — sending a bar there would be the frame
-	// stream quietly re-revealing something.
-	kind := domainsession.FrameState
-	if released {
-		kind = domainsession.FrameBar
-	}
-	return s.persistCursor(ctx, entity, kind)
-}
-
-// Seek jumps the view to a bar the session has already released. Seeking forward is refused, not
-// clamped: a clamp turns an attempt to peek into a successful-looking response, and hides a real
-// client bug at the same time.
-func (s *service) Seek(ctx context.Context, userID, sessionID uuid.UUID, index int) (*domainsession.Session, error) {
-	entity, err := s.loadLive(ctx, userID, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if index < 0 || index > entity.RevealedIndex {
-		return nil, apperror.Newf("INVALID_CURSOR",
-			"bar %d has not been released; the session has revealed up to %d", index, entity.RevealedIndex)
-	}
-	entity.CursorIndex = index
-	return s.persistCursor(ctx, entity, domainsession.FrameState)
+	// Every accepted step releases bars, so every accepted step carries one.
+	return s.persistCursor(ctx, entity, domainsession.FrameBar)
 }
 
 func (s *service) SetSpeed(ctx context.Context, userID, sessionID uuid.UUID, raw string) (*domainsession.Session, error) {
@@ -206,7 +185,7 @@ func (s *service) Close(ctx context.Context, userID, sessionID uuid.UUID) (*doma
 	s.publish(ctx, entity, domainsession.FrameState)
 	if err := s.emit(ctx, entity.ID, event.TypeSessionClosed, event.TopicSessions, map[string]any{
 		"session_id": entity.ID, "user_id": userID, "account_id": entity.AccountID,
-		"cursor_index": entity.CursorIndex, "revealed_index": entity.RevealedIndex, "closed_at": now,
+		"cursor_index": entity.CursorIndex, "closed_at": now,
 	}); err != nil {
 		return nil, err
 	}
@@ -222,7 +201,7 @@ func (s *service) Bars(ctx context.Context, userID, sessionID uuid.UUID, from, t
 		return nil, err
 	}
 	if to < 0 {
-		to = entity.RevealedIndex
+		to = entity.CursorIndex
 	}
 	if from < 0 {
 		from = 0
@@ -232,7 +211,7 @@ func (s *service) Bars(ctx context.Context, userID, sessionID uuid.UUID, from, t
 	}
 	if !entity.CanRead(to) {
 		return nil, apperror.Newf("INVALID_CURSOR",
-			"bar %d has not been released; the session has revealed up to %d", to, entity.RevealedIndex)
+			"bar %d has not been released; the session has reached %d", to, entity.CursorIndex)
 	}
 	if to-from+1 > s.deps.MaxBarsPerRequest {
 		return nil, apperror.Newf("VALIDATION_FAILED",
@@ -267,8 +246,8 @@ func (s *service) persistCursor(ctx context.Context, entity *domainsession.Sessi
 	entity.LastActiveAt = now
 	entity.UpdatedAt = now
 
-	if entity.RevealedIndex-entity.LastCheckpointIndex >= s.deps.CheckpointEvery {
-		entity.LastCheckpointIndex = entity.RevealedIndex
+	if entity.CursorIndex-entity.LastCheckpointIndex >= s.deps.CheckpointEvery {
+		entity.LastCheckpointIndex = entity.CursorIndex
 		if err := s.deps.Repo.UpdateCursor(ctx, entity); err != nil {
 			return nil, err
 		}
@@ -294,10 +273,10 @@ func (s *service) load(ctx context.Context, userID, sessionID uuid.UUID) (*domai
 		return nil, apperror.New("SESSION_NOT_FOUND")
 	}
 	// Redis holds the live cursor between checkpoints, so prefer it — but only ever forward. A
-	// stale cache must never be able to un-reveal a bar the trader has already been shown.
-	if state, ok := s.deps.State.Load(ctx, sessionID); ok && state.RevealedIndex >= entity.RevealedIndex {
+	// stale cache must never be able to un-show a bar the trader has already been given, which is
+	// the same rule the cursor itself now follows.
+	if state, ok := s.deps.State.Load(ctx, sessionID); ok && state.CursorIndex >= entity.CursorIndex {
 		entity.CursorIndex = state.CursorIndex
-		entity.RevealedIndex = state.RevealedIndex
 	}
 	return entity, nil
 }
@@ -364,9 +343,8 @@ func (s *service) SetTimeframe(ctx context.Context, userID, sessionID uuid.UUID,
 	return s.persistCursor(ctx, entity, domainsession.FrameBar)
 }
 
-// ViewBars renders the session at a timeframe, as of the revealed edge. The edge — not the view
-// cursor — is what bounds it: rewinding changes where the trader is looking, not what they are
-// permitted to know.
+// ViewBars renders the session at a timeframe, bounded by the cursor. One index bounds it because
+// there is only one: the trader is on the furthest bar released, and nothing can put them behind it.
 func (s *service) ViewBars(ctx context.Context, userID, sessionID uuid.UUID, timeframe market.Timeframe) ([]domainfeed.Bar, error) {
 	entity, err := s.load(ctx, userID, sessionID)
 	if err != nil {
@@ -384,5 +362,5 @@ func (s *service) viewBars(ctx context.Context, entity *domainsession.Session, t
 	if !timeframe.Valid() {
 		return nil, apperror.New("INVALID_TIMEFRAME")
 	}
-	return s.deps.Feeds.ViewBars(ctx, entity.FeedID, timeframe, entity.RevealedIndex)
+	return s.deps.Feeds.ViewBars(ctx, entity.FeedID, timeframe, entity.CursorIndex)
 }
