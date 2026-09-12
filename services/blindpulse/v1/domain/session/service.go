@@ -141,6 +141,17 @@ func (s *service) stepLoaded(ctx context.Context, entity *domainsession.Session,
 	if target > feed.TotalBars-1 {
 		return nil, apperror.New("BARS_EXHAUSTED")
 	}
+	// The bars resolve before the cursor commits, and that order is the whole of the error story.
+	// Execution is what makes a step mean something — a resting order fills, a stop triggers — and
+	// if it fails, a committed cursor would have skipped those bars for good: the retry would start
+	// from the new index and nothing would ever resolve them. Advancing first makes a failed step a
+	// step that did not happen, and re-walking the same range on the retry is safe because a filled
+	// order is no longer pending and a closed position is no longer open.
+	if s.deps.Execution != nil {
+		if err := s.deps.Execution.Advance(ctx, entity.ID, entity.CursorIndex, target); err != nil {
+			return nil, err
+		}
+	}
 	entity.CursorIndex = target
 	// Every accepted step releases bars, so every accepted step carries one.
 	return s.persistCursor(ctx, entity, domainsession.FrameBar)

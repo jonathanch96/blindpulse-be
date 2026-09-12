@@ -183,6 +183,31 @@ margin on its own, which teaches the lesson instead of lecturing about it afterw
 | 04-AC-11 | An open position at an unrealized loss, and a second order that the starting balance would fund but current equity will not | Submitted | `INSUFFICIENT_MARGIN` — pyramiding into a loser is refused by the margin maths, per `SP4-3` |
 | 04-AC-12 | A session whose bars cross a market-day boundary | Every risk and order payload inspected | Room remaining is reported; nothing identifies the boundary — asserted by a leak test, per `SP4-1` |
 | 04-AC-13 | A resting limit order and a bar whose range covers both the limit price and the stop | Advanced | One filled-and-stopped trade at −1R, not an unfilled order, per `SP4-5` |
+| 04-AC-14 | A position whose stop has been moved to breakeven | Closed at a small loss | The R-multiple is measured against the stop the position was **sized on**, so it is a small negative and not `0.0000`. 1R is fixed at entry; moving a stop does not rewrite it |
+| 04-AC-15 | A position whose stop has been moved to breakeven | Its target amended | Accepted. `Breakeven` puts the stop *at* the entry by design, so an amend validates only the level it is actually given — otherwise the feature is a one-way door that freezes the target |
+| 04-AC-16 | An open position | Closed in part | The **caller's** trade id stays open holding the remainder; the closed portion is the new row and carries the realized PnL, R-multiple and bars held. A fraction that rounds to nothing or to everything is refused, never promoted to a full close |
+| 04-AC-17 | Any open position across any bar | Excursions inspected | MAE and MFE are **non-negative price distances**, in the same units as the stop, so "it went 0.6 of my stop against me" is a comparison the post-mortem can make directly |
+| 04-AC-18 | A session's very first bar, on which a position fills and loses | Risk read | The loss has spent its share of the daily allowance. An unmarked market day takes its reference from the account's balance, because the first bar's own mark cannot be its own reference |
+
+## Verified end to end
+
+Driven against PostgreSQL with a real blinded feed, not only in unit tests: register → open an
+account → start a session → place market and resting orders → step → breakeven → partial close →
+amend → close all → verify the ledger. Worth recording because five of the defects above were
+invisible to the stub-based tests and only appeared against real rows:
+
+- the domain pre-incremented `version` before calling `Update`, which the stubs ignored and every
+  adapter rejects — so every close, cancel and amend would have failed with
+  `CONCURRENT_MODIFICATION` in production while the unit suite stayed green;
+- `ClosePosition` rebuilt its own return value instead of using what the close computed, so a client
+  closing a position was told it closed for nothing while the row held the real P&L;
+- excursions were signed money figures, so an adverse excursion was negative and in different units
+  from the stop it exists to be compared against;
+- the R-multiple divided by the live stop, so `Breakeven` silently destroyed it;
+- the partial close handed the caller's id to the closed half.
+
+The stubs now enforce the optimistic lock and mirror the adapters' filtering, so the first of those
+cannot recur silently.
 
 ## Test plan
 - **Domain:** the gate as a table test — every check, its order, and the exact code, including the

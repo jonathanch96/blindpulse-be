@@ -21,8 +21,12 @@ type Dependencies struct {
 	Feeds    FeedReader
 	Accounts AccountReader
 	Outbox   OutboxRepository
-	Topic    func(string) string
-	Clock    func() time.Time
+	// Execution resolves the bars a cursor move releases: resting orders fill, stops and targets
+	// trigger, equity is marked. Optional — a deployment without it still steps, it just never
+	// fills anything — which is what let the replay half ship a sprint before execution did.
+	Execution CursorObserver
+	Topic     func(string) string
+	Clock     func() time.Time
 	// Seeds draws the determinism seed. Injected so a test can pin it.
 	Seeds func() int64
 

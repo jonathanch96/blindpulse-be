@@ -22,6 +22,23 @@ type Config struct {
 	Kafka   KafkaConfig
 	Replay  ReplayConfig
 	Auth    AuthConfig
+	// Execution is the simulated venue's frictions.
+	Execution ExecutionConfig
+}
+
+// ExecutionConfig is how expensive it is to trade against this simulator.
+//
+// Both default to something rather than zero on purpose. A frictionless fill engine is the single
+// most flattering bug a replay tool can have: every strategy looks better without a spread, and a
+// trader who learned their edge here would lose it the moment they traded a real book. Set them to 0
+// only for a teaching feed where the point is the mechanics rather than the edge.
+type ExecutionConfig struct {
+	// SpreadTicks is the full bid-ask width; a fill crosses half of it.
+	SpreadTicks int `envconfig:"EXECUTION_SPREAD_TICKS" default:"1"`
+	// MaxSlippageTicks bounds the adverse-only slippage draw. The draw itself is a hash of the
+	// session seed, the bar index and the order's sequence, never a random stream — so a disputed
+	// fill can be recomputed from the three coordinates alone (NFR-03).
+	MaxSlippageTicks int `envconfig:"EXECUTION_MAX_SLIPPAGE_TICKS" default:"2"`
 }
 
 // AuthConfig throttles the front door. Two independent budgets: one per client address, one per

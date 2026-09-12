@@ -147,9 +147,16 @@ func ExcursionsFor(trade Trade, bar domainfeed.Bar) (adverse, favorable decimal.
 	if !trade.Side.Long() {
 		worst, best = bar.High, bar.Low
 	}
-	adverse = trade.UnrealizedPnL(worst)
-	favorable = trade.UnrealizedPnL(best)
-	if adverse.IsPositive() {
+	// Price distances, non-negative, in the units the stop is in.
+	//
+	// They were money figures signed by direction, which made an adverse excursion negative and put
+	// it in a different unit from the stop it is meant to be compared against. The whole use of MAE
+	// is "the trade went 1.4x my stop distance against me before it worked", and that sentence needs
+	// a distance. Money is recoverable from it by multiplying through by size; the reverse needs the
+	// size, which the post-mortem may be comparing across positions of different sizes.
+	adverse = signedMove(trade.Side, trade.EntryPrice, worst).Neg()
+	favorable = signedMove(trade.Side, trade.EntryPrice, best)
+	if adverse.IsNegative() {
 		adverse = decimal.Zero
 	}
 	if favorable.IsNegative() {
@@ -184,4 +191,15 @@ func RMultiple(trade Trade, exit decimal.Decimal) decimal.Decimal {
 		move = move.Neg()
 	}
 	return move.Div(risk).Round(4)
+}
+
+// signedMove is the price move in the trade's favour: positive when the position is winning at that
+// price, negative when it is losing, whichever side it is on. Written once so the four places that
+// need the direction cannot each get it backwards.
+func signedMove(side Side, entry, at decimal.Decimal) decimal.Decimal {
+	move := at.Sub(entry)
+	if !side.Long() {
+		move = move.Neg()
+	}
+	return move
 }

@@ -129,3 +129,15 @@ type TicketStore interface {
 	// ticket is a reusable credential.
 	Redeem(ctx context.Context, token string) (*StreamTicket, error)
 }
+
+// CursorObserver is the execution domain, seen from here as one call.
+//
+// The dependency runs this way round deliberately. The session owns the cursor, so it is the only
+// thing that knows a move happened; execution owns fills, so it is the only thing that knows what a
+// move means. Wiring the two services to each other would be a cycle, and putting the fill logic
+// behind the cursor would make the session domain know about margin.
+type CursorObserver interface {
+	// Advance resolves every bar in (fromBar, toBar]. It must be idempotent over a range: a step
+	// that fails after this returns is retried, and the same bars are walked again.
+	Advance(ctx context.Context, sessionID uuid.UUID, fromBar, toBar int) error
+}

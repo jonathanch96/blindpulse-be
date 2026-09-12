@@ -143,14 +143,34 @@ func TestRMultipleIsSignedAndScaledByTheRiskTaken(t *testing.T) {
 
 // The excursions are what separate "the idea was wrong" from "the idea was right and the stop was
 // in the wrong place", so they are measured at the bar's extremes rather than at its close.
+// Excursions are non-negative price distances, in the same units as the stop.
+//
+// They used to be money figures signed by direction, so an adverse excursion was negative and could
+// not be compared to the stop distance it exists to be compared to. The sentence MAE is for is "it
+// went 0.6 of my stop against me before it worked", and that needs a distance: money is recoverable
+// by multiplying through by the size, while the reverse needs a size the post-mortem may be varying
+// across the positions it is comparing.
 func TestExcursionsAreMeasuredAtTheExtremesNotTheClose(t *testing.T) {
 	trade := Trade{Side: SideBuy, Quantity: dec("10000"), EntryPrice: dec("1.10000"), StopLoss: dec("1.09000")}
 	adverse, favorable := ExcursionsFor(trade, bar("1.10000", "1.10800", "1.09400", "1.10000"))
-	if got := adverse.String(); got != "-60" {
-		t.Errorf("adverse = %s, want -60 (the low, not the flat close)", got)
+	// The low is 60 ticks below the entry, which is 0.6 of a 100-tick stop: the trade was well
+	// inside its stop at the worst point, even though the bar closed flat.
+	if got := adverse.String(); got != "0.006" {
+		t.Errorf("adverse = %s, want 0.006 (the distance to the low, not the flat close)", got)
 	}
-	if got := favorable.String(); got != "80" {
-		t.Errorf("favorable = %s, want 80 (the high)", got)
+	if got := favorable.String(); got != "0.008" {
+		t.Errorf("favorable = %s, want 0.008 (the distance to the high)", got)
+	}
+	// And the same bar against a short: the extremes swap, so what was adverse for the long is the
+	// favourable side here. Without this the sign convention could be inverted and the long case
+	// alone would not notice.
+	short := Trade{Side: SideSell, Quantity: dec("10000"), EntryPrice: dec("1.10000"), StopLoss: dec("1.11000")}
+	adverseShort, favorableShort := ExcursionsFor(short, bar("1.10000", "1.10800", "1.09400", "1.10000"))
+	if got := adverseShort.String(); got != "0.008" {
+		t.Errorf("short adverse = %s, want 0.008 (the high is against a short)", got)
+	}
+	if got := favorableShort.String(); got != "0.006" {
+		t.Errorf("short favorable = %s, want 0.006 (the low is in a short's favour)", got)
 	}
 	// A bar that only went the trader's way has no adverse excursion, not a positive one.
 	adverse, _ = ExcursionsFor(trade, bar("1.10100", "1.10800", "1.10050", "1.10700"))
@@ -178,4 +198,45 @@ func TestDecimalThroughout(t *testing.T) {
 	// NFR-08. Guarded here because this package is where money arithmetic concentrates, and the
 	// classic failure is a single float64 helper that rounds a cent away per trade.
 	var _ decimal.Decimal = RealizedPnL(Trade{Side: SideBuy, Quantity: dec("1"), EntryPrice: dec("1")}, dec("2"), dec("1"))
+}
+
+// TestRMultipleIsMeasuredAgainstTheStopThePositionWasSizedOn is what makes breakeven usable.
+//
+// 1R is fixed when the position opens, because that is the distance the size was derived from. Read
+// from the *live* stop instead, a trader who moved their stop to entry had a risk of zero, and every
+// R-multiple after that divided by zero and came back 0.0000 — so a trade that lost real money
+// reported as a scratch, and the discipline index's central number was silently destroyed by the one
+// action it most wants to reward.
+func TestRMultipleIsMeasuredAgainstTheStopThePositionWasSizedOn(t *testing.T) {
+	trade := Trade{
+		Side: SideBuy, Quantity: dec("10000"), EntryPrice: dec("1.10000"),
+		InitialStopLoss: dec("1.09000"),
+		// Moved to breakeven after the trade went the trader's way.
+		StopLoss: dec("1.10000"),
+	}
+	// Stopped out at breakeven, minus a tick of friction: a small real loss, not a 0R scratch and
+	// certainly not a division by zero.
+	if got := RMultiple(trade, dec("1.09990")).String(); got != "-0.01" {
+		t.Errorf("R at breakeven = %s, want -0.01 of the original 100-tick risk", got)
+	}
+	// And a winner is still measured in the same units.
+	if got := RMultiple(trade, dec("1.12000")).String(); got != "2" {
+		t.Errorf("R at +200 ticks = %s, want 2", got)
+	}
+	// Risk() is 1R and does not move with the stop; LiveRisk() is what is still on the table.
+	if got := trade.Risk().String(); got != "0.01" {
+		t.Errorf("Risk() = %s, want the original 0.01", got)
+	}
+	if !trade.LiveRisk().IsZero() {
+		t.Errorf("LiveRisk() = %s at breakeven, want 0", trade.LiveRisk())
+	}
+}
+
+// A row written before initial_stop_loss existed carries a zero there. Falling back to the live stop
+// is the best available answer and is exactly right for any position whose stop never moved.
+func TestRMultipleFallsBackToTheLiveStopForAnOlderTrade(t *testing.T) {
+	legacy := Trade{Side: SideBuy, Quantity: dec("10000"), EntryPrice: dec("1.10000"), StopLoss: dec("1.09000")}
+	if got := RMultiple(legacy, dec("1.12000")).String(); got != "2" {
+		t.Errorf("R = %s on a trade with no recorded initial stop, want 2", got)
+	}
 }

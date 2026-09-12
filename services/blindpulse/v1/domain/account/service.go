@@ -226,7 +226,7 @@ func (s *service) VerifyLedger(ctx context.Context, userID, accountID uuid.UUID)
 	}
 	var previous *string
 	for _, entry := range entries {
-		expected := hashEntry(entry, previous)
+		expected := HashLedgerEntry(entry, previous)
 		if expected != entry.EntryHash {
 			sequence := entry.Sequence
 			result.Valid = false
@@ -287,16 +287,20 @@ func (s *service) appendLedger(ctx context.Context, accountID uuid.UUID, kind do
 		// nanosecond the database rounds away, and the chain then fails to verify on read-back.
 		RecordedAt: s.deps.Clock().Truncate(time.Microsecond),
 	}
-	entry.EntryHash = hashEntry(*entry, previousHash)
+	entry.EntryHash = HashLedgerEntry(*entry, previousHash)
 	if err := s.deps.Ledger.Append(ctx, entry); err != nil {
 		return nil, err
 	}
 	return entry, nil
 }
 
-// hashEntry is the chain link. Fields are joined with a separator that cannot appear in any of
+// HashLedgerEntry is the chain link. Fields are joined with a separator that cannot appear in any of
 // them, so two different entries cannot serialize to the same string by shifting a boundary.
-func hashEntry(entry domainaccount.LedgerEntry, previousHash *string) string {
+//
+// Exported because the execution domain appends trade entries to the same chain. There can only be
+// one implementation of this rule: a second copy that drifted by a field would make VerifyLedger
+// fail for every account that had ever traded, and the failure would look like tampering.
+func HashLedgerEntry(entry domainaccount.LedgerEntry, previousHash *string) string {
 	previous := ""
 	if previousHash != nil {
 		previous = *previousHash

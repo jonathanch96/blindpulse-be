@@ -130,12 +130,17 @@ type Trade struct {
 	EntryPrice   decimal.Decimal
 	ExitPrice    *decimal.Decimal
 	StopLoss     decimal.Decimal
-	TakeProfit   *decimal.Decimal
-	Status       string
-	ExitReason   *ExitReason
-	BehaviorTag  *string
-	RealizedPnL  *decimal.Decimal
-	RMultiple    *decimal.Decimal
+	// InitialStopLoss is the stop the position was sized against, and it never changes. StopLoss
+	// does — moving one to breakeven is a first-class action — and an R-multiple measured against a
+	// moved stop is not an R-multiple: 1R is fixed the moment the position is opened, because that
+	// is the number the size was derived from.
+	InitialStopLoss decimal.Decimal
+	TakeProfit      *decimal.Decimal
+	Status          string
+	ExitReason      *ExitReason
+	BehaviorTag     *string
+	RealizedPnL     *decimal.Decimal
+	RMultiple       *decimal.Decimal
 	// Excursions separate "the idea was wrong" from "the idea was right and the stop was in the
 	// wrong place", which is the single most useful thing a post-mortem can tell a trader.
 	MaxAdverseExcursion   *decimal.Decimal
@@ -158,9 +163,25 @@ const (
 // Open reports whether this position is still exposed.
 func (t Trade) Open() bool { return t.Status == TradeOpen }
 
-// Risk is the distance from entry to stop, always positive. It is the denominator of every
-// R-multiple and the basis of every size calculation.
-func (t Trade) Risk() decimal.Decimal { return t.EntryPrice.Sub(t.StopLoss).Abs() }
+// Risk is 1R: the distance from the entry to the stop the position was *sized on*, always positive.
+//
+// Measured against InitialStopLoss and deliberately not against the live one. A trader who moves a
+// stop to breakeven has not made their risk zero retroactively — they have banked the option — and
+// dividing by the live distance made every R-multiple after such a move come out 0.0000, so a trade
+// that lost real money reported as a scratch.
+func (t Trade) Risk() decimal.Decimal {
+	stop := t.InitialStopLoss
+	if stop.IsZero() {
+		// A row written before the column existed. The original stop is the best answer available,
+		// and for a position whose stop never moved it is the exact one.
+		stop = t.StopLoss
+	}
+	return t.EntryPrice.Sub(stop).Abs()
+}
+
+// LiveRisk is the distance to where the stop is *now*, which is what the margin and exposure panels
+// want: how much is still on the table rather than how much was risked at entry.
+func (t Trade) LiveRisk() decimal.Decimal { return t.EntryPrice.Sub(t.StopLoss).Abs() }
 
 // UnrealizedPnL values an open position at a price.
 //
@@ -197,3 +218,21 @@ const PriceScale = 5
 
 // MoneyScale is the precision balances and PnL are held at.
 const MoneyScale = 8
+
+// MarketDay is the start of the market day a real instant falls in (SP4-1).
+//
+// The UTC calendar day, deliberately: any rollover tied to a particular venue's session — 22:00 for
+// FX, 21:00 for CME equity index — would be a statement about which venue the feed came from, and
+// the whole point of blinding is that the trader cannot make that statement. The UTC day is the one
+// boundary that carries no venue in it.
+//
+// This is a server-side quantity. Nothing derived from it — the boundary, its ordinal, the distance
+// to it — may appear in a response: a trader who can see where the resets fall sees a two-day gap
+// every five days, and that is a weekend, which rules out crypto outright.
+func MarketDay(at time.Time) time.Time {
+	if at.IsZero() {
+		return time.Time{}
+	}
+	utc := at.UTC()
+	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+}
