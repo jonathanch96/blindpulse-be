@@ -298,17 +298,7 @@ func (s *service) ListPositions(ctx context.Context, userID, sessionID uuid.UUID
 }
 
 func (s *service) extendExcursions(ctx context.Context, trade domainexec.Trade, bar domainfeed.Bar) error {
-	adverse, favorable := domainexec.ExcursionsFor(trade, bar)
-	updated := trade
-	// Both are non-negative magnitudes, so both extend upward. Adverse used to be a negative money
-	// figure and took the minimum; flipping the units without flipping this comparison would have
-	// frozen MAE at the first bar's value forever.
-	if trade.MaxAdverseExcursion == nil || adverse.GreaterThan(*trade.MaxAdverseExcursion) {
-		updated.MaxAdverseExcursion = &adverse
-	}
-	if trade.MaxFavorableExcursion == nil || favorable.GreaterThan(*trade.MaxFavorableExcursion) {
-		updated.MaxFavorableExcursion = &favorable
-	}
+	updated := domainexec.ExtendExcursions(trade, bar)
 	if updated.MaxAdverseExcursion == trade.MaxAdverseExcursion &&
 		updated.MaxFavorableExcursion == trade.MaxFavorableExcursion {
 		// Nothing moved past a previous extreme. Skipping the write keeps a quiet bar from costing

@@ -203,3 +203,21 @@ func signedMove(side Side, entry, at decimal.Decimal) decimal.Decimal {
 	}
 	return move
 }
+
+// ExtendExcursions returns the trade with this bar's extremes folded into its recorded ones.
+//
+// Pure, and shared by the two callers that need it, because they are easy to get out of step: the
+// per-bar path extends a position that survived, and the closing path has to extend it one last time
+// with the bar that ended it. Without the second, a stopped trade's MAE excluded the bar that stopped
+// it — so it read as *less* than the stop distance the trade demonstrably travelled, while a winner's
+// MAE covered its whole life. The two numbers were not comparable, which is the only thing MAE is for.
+func ExtendExcursions(trade Trade, bar domainfeed.Bar) Trade {
+	adverse, favorable := ExcursionsFor(trade, bar)
+	if trade.MaxAdverseExcursion == nil || adverse.GreaterThan(*trade.MaxAdverseExcursion) {
+		trade.MaxAdverseExcursion = &adverse
+	}
+	if trade.MaxFavorableExcursion == nil || favorable.GreaterThan(*trade.MaxFavorableExcursion) {
+		trade.MaxFavorableExcursion = &favorable
+	}
+	return trade
+}

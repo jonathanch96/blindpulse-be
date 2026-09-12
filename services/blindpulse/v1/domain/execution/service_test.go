@@ -815,3 +815,40 @@ func TestTheTargetCanStillMoveAfterTheStopWentToBreakeven(t *testing.T) {
 		t.Errorf("err = %v, want ORDER_STOP_INVALID for a stop above a long's entry", err)
 	}
 }
+
+// TestAStoppedTradeRecordsTravellingAllTheWayToItsStop makes MAE comparable between winners and
+// losers.
+//
+// Excursions were extended only for positions that *survived* a bar, so the bar that stopped a trade
+// never contributed its extremes. A stopped trade therefore recorded a maximum adverse excursion
+// smaller than the stop distance it had demonstrably travelled, while a winner's covered its whole
+// life — and MAE exists precisely to be compared across trades, so two numbers measured over
+// different spans made it useless.
+func TestAStoppedTradeRecordsTravellingAllTheWayToItsStop(t *testing.T) {
+	bars := flat(40, "1.10000")
+	// Bar 11 fills it at the open; bar 12 reaches down through the stop at 1.09000.
+	bars[12] = domainfeed.Bar{Index: 12, Open: dec("1.10000"), High: dec("1.10000"), Low: dec("1.08900"), Close: dec("1.09500")}
+	f := newFixture(t, bars)
+
+	if _, err := f.service.Place(context.Background(), f.userID, f.session, marketBuy("stopped")); err != nil {
+		t.Fatalf("Place: %v", err)
+	}
+	if err := f.service.Advance(context.Background(), f.session, 10, 12); err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+
+	trades, _ := f.trades.ListBySessionID(context.Background(), f.session)
+	if len(trades) != 1 || trades[0].Open() {
+		t.Fatalf("want one closed trade, got %d", len(trades))
+	}
+	closed := trades[0]
+	if closed.MaxAdverseExcursion == nil {
+		t.Fatal("a stopped trade recorded no adverse excursion at all")
+	}
+	// It travelled at least the full distance from entry to stop — that is what being stopped means.
+	// Reporting less would say the trade was never seriously threatened by the move that ended it.
+	stopDistance := closed.EntryPrice.Sub(closed.StopLoss).Abs()
+	if closed.MaxAdverseExcursion.LessThan(stopDistance) {
+		t.Errorf("MAE %s is less than the %s stop distance it was stopped at", closed.MaxAdverseExcursion, stopDistance)
+	}
+}

@@ -198,7 +198,12 @@ func (s *service) advanceOne(ctx context.Context, replay *domainsession.Session,
 	}
 	for _, trade := range open {
 		if resolution := domainexec.ResolveOpen(trade, bar); resolution.Closed {
-			if _, err := s.closeTrade(ctx, trade, resolution.Price, resolution.Exit, bar.Index, context_); err != nil {
+			// The bar that ends a position is part of its life, so its extremes count toward the
+			// excursions. Folded in before the close rather than written separately: two updates to
+			// one row in one bar would collide on the version, and the close is the write that has
+			// to land.
+			ended := domainexec.ExtendExcursions(trade, bar)
+			if _, err := s.closeTrade(ctx, ended, resolution.Price, resolution.Exit, bar.Index, context_); err != nil {
 				return err
 			}
 			continue
@@ -249,7 +254,8 @@ func (s *service) advanceOne(ctx context.Context, replay *domainsession.Session,
 		// SP4-5. The bar that filled it may also contain its stop: fill, then stop — the same
 		// adverse assumption the stop-versus-target rule makes one level up.
 		if resolution := domainexec.ResolveOpen(*trade, bar); resolution.Closed {
-			if _, err := s.closeTrade(ctx, *trade, resolution.Price, resolution.Exit, bar.Index, context_); err != nil {
+			ended := domainexec.ExtendExcursions(*trade, bar)
+			if _, err := s.closeTrade(ctx, ended, resolution.Price, resolution.Exit, bar.Index, context_); err != nil {
 				return err
 			}
 		}
@@ -286,7 +292,8 @@ func (s *service) settleBar(ctx context.Context, replay *domainsession.Session, 
 	// BR-05. The positions go at market on this bar's close; the session is not deleted, because
 	// the post-mortem needs it, and a halted session refuses new orders through the gate.
 	for _, trade := range open {
-		if _, err := s.closeTrade(ctx, trade, bar.Close, domainexec.ExitDrawdownHalt, bar.Index, context_); err != nil {
+		ended := domainexec.ExtendExcursions(trade, bar)
+		if _, err := s.closeTrade(ctx, ended, bar.Close, domainexec.ExitDrawdownHalt, bar.Index, context_); err != nil {
 			return err
 		}
 	}
